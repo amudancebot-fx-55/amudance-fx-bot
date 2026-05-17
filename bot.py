@@ -7,7 +7,7 @@ import requests
 import threading
 import time
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
 from PIL import Image
@@ -22,17 +22,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAYSTACK_SECRET = os.getenv("PAYSTACK_SECRET_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-# =========================
-# CHECK ENV
-# =========================
-if not BOT_TOKEN:
-    raise Exception("BOT_TOKEN missing")
-
-if not GEMINI_API_KEY:
-    raise Exception("GEMINI_API_KEY missing")
-
-if not PAYSTACK_SECRET:
-    raise Exception("PAYSTACK_SECRET_KEY missing")
+if not BOT_TOKEN or not GEMINI_API_KEY or not PAYSTACK_SECRET:
+    raise Exception("Missing environment variables")
 
 # =========================
 # INIT
@@ -48,13 +39,10 @@ VIP_FILE = "vip_data.json"
 USER_FILE = "users.json"
 SIGNAL_FILE = "signals.json"
 
-# =========================
-# CREATE FILES IF MISSING
-# =========================
-for file in [VIP_FILE, USER_FILE, SIGNAL_FILE]:
-    if not os.path.exists(file):
-        with open(file, "w") as f:
-            json.dump({}, f)
+for f in [VIP_FILE, USER_FILE, SIGNAL_FILE]:
+    if not os.path.exists(f):
+        with open(f, "w") as x:
+            json.dump({}, x)
 
 # =========================
 # HELPERS
@@ -71,41 +59,37 @@ def save(file, data):
         json.dump(data, f, indent=4)
 
 # =========================
+# USERS
+# =========================
+def add_user(uid):
+    data = load(USER_FILE)
+    if str(uid) not in data:
+        data[str(uid)] = {"joined": str(datetime.now())}
+        save(USER_FILE, data)
+
+# =========================
 # VIP SYSTEM
 # =========================
 def add_vip(user_id, days):
-
     data = load(VIP_FILE)
+    now = datetime.now().timestamp()
 
-    current = datetime.now().timestamp()
-
-    if str(user_id) in data:
-        old_expiry = data[str(user_id)]
-
-        if old_expiry > current:
-            expiry = old_expiry + (days * 86400)
-        else:
-            expiry = current + (days * 86400)
-
+    if str(user_id) in data and data[str(user_id)] > now:
+        expiry = data[str(user_id)] + days * 86400
     else:
-        expiry = current + (days * 86400)
+        expiry = now + days * 86400
 
     data[str(user_id)] = expiry
-
     save(VIP_FILE, data)
 
 def is_vip(user_id):
-
     data = load(VIP_FILE)
-
     uid = str(user_id)
 
     if uid not in data:
         return False
 
-    expiry = data[uid]
-
-    if datetime.now().timestamp() > expiry:
+    if datetime.now().timestamp() > data[uid]:
         del data[uid]
         save(VIP_FILE, data)
         return False
@@ -113,462 +97,222 @@ def is_vip(user_id):
     return True
 
 # =========================
-# USERS
-# =========================
-def add_user(uid):
-
-    data = load(USER_FILE)
-
-    if str(uid) not in data:
-
-        data[str(uid)] = {
-            "joined": str(datetime.now())
-        }
-
-        save(USER_FILE, data)
-
-# =========================
 # RATE LIMIT
 # =========================
 last_time = {}
 
 def rate_limit(uid):
-
     now = time.time()
-
-    if uid in last_time:
-
-        if now - last_time[uid] < 8:
-            return False
-
+    if uid in last_time and now - last_time[uid] < 8:
+        return False
     last_time[uid] = now
-
     return True
 
 # =========================
-# SIMPLE SMC ENGINE
+# SMC ENGINE
 # =========================
 def smc_engine():
-
-    structure = random.choice([
-        "Bullish structure with higher highs",
-        "Bearish structure with lower lows",
-        "Sideways consolidation"
-    ])
-
-    liquidity = random.choice([
-        "Liquidity resting above highs",
-        "Liquidity resting below lows",
-        "Balanced liquidity"
-    ])
-
-    return structure, liquidity
+    return (
+        random.choice([
+            "Bullish structure with higher highs",
+            "Bearish structure with lower lows",
+            "Sideways consolidation"
+        ]),
+        random.choice([
+            "Liquidity above highs",
+            "Liquidity below lows",
+            "Balanced liquidity"
+        ])
+    )
 
 # =========================
-# START MENU
+# START
 # =========================
 @bot.message_handler(commands=['start'])
 def start(m):
 
     add_user(m.chat.id)
 
-    markup = types.ReplyKeyboardMarkup(
-        resize_keyboard=True,
-        row_width=2
-    )
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 
-    btn1 = types.KeyboardButton("📊 Analyze Chart")
-    btn2 = types.KeyboardButton("💎 VIP Plans")
-    btn3 = types.KeyboardButton("👤 My VIP")
-    btn4 = types.KeyboardButton("📞 Support")
-
-    markup.add(btn1, btn2)
-    markup.add(btn3, btn4)
-
-    text = (
-        "🚀 AMUDANCE FX BOT\n\n"
-        "AI Smart Money Concepts Analysis\n\n"
-        "Send chart screenshot for instant analysis."
+    markup.add(
+        types.KeyboardButton("📊 Analyze Chart"),
+        types.KeyboardButton("💎 VIP Plans"),
+        types.KeyboardButton("👤 My VIP"),
+        types.KeyboardButton("📞 Support")
     )
 
     bot.send_message(
         m.chat.id,
-        text,
+        "🚀 AMUDANCE FX BOT\n\nSend chart screenshot for analysis.",
         reply_markup=markup
     )
 
 # =========================
-# VIP MENU
+# MENU HANDLER (FIXED)
 # =========================
-@bot.message_handler(func=lambda m: m.text == "💎 VIP Plans")
-def vip_menu(m):
+@bot.message_handler(content_types=['text'])
+def menu(m):
 
-    markup = types.InlineKeyboardMarkup()
+    if m.text == "📊 Analyze Chart":
+        bot.reply_to(m, "📸 Send your chart screenshot now")
 
-    b1 = types.InlineKeyboardButton(
-        "7 Days - ₦2000",
-        callback_data="pay_7"
-    )
-
-    b2 = types.InlineKeyboardButton(
-        "30 Days - ₦5000",
-        callback_data="pay_30"
-    )
-
-    b3 = types.InlineKeyboardButton(
-        "90 Days - ₦12000",
-        callback_data="pay_90"
-    )
-
-    markup.add(b1)
-    markup.add(b2)
-    markup.add(b3)
-
-    bot.send_message(
-        m.chat.id,
-        "💎 Choose VIP Plan",
-        reply_markup=markup
-    )
-
-# =========================
-# PAYMENT CALLBACK
-# =========================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("pay_"))
-def payment_callback(c):
-
-    try:
-
-        days = int(c.data.split("_")[1])
-
-        if days == 7:
-            amount = 2000
-
-        elif days == 30:
-            amount = 5000
-
-        else:
-            amount = 12000
-
-        url = "https://api.paystack.co/transaction/initialize"
-
-        headers = {
-            "Authorization": f"Bearer {PAYSTACK_SECRET}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "email": f"user{c.message.chat.id}@mail.com",
-            "amount": amount * 100,
-            "metadata": {
-                "user_id": c.message.chat.id,
-                "days": days
-            }
-        }
-
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers
-        )
-
-        res = response.json()
-
-        print("PAYSTACK:", res)
-
-        if not res.get("status"):
-
-            return bot.answer_callback_query(
-                c.id,
-                "Payment Error"
-            )
-
-        pay_link = (
-            res.get("data", {})
-            .get("authorization_url")
-        )
+    elif m.text == "💎 VIP Plans":
 
         markup = types.InlineKeyboardMarkup()
-
-        pay_btn = types.InlineKeyboardButton(
-            "💳 PAY NOW",
-            url=pay_link
+        markup.add(
+            types.InlineKeyboardButton("7 Days - ₦2000", callback_data="pay_7"),
+            types.InlineKeyboardButton("30 Days - ₦5000", callback_data="pay_30"),
+            types.InlineKeyboardButton("90 Days - ₦12000", callback_data="pay_90")
         )
 
-        markup.add(pay_btn)
+        bot.send_message(m.chat.id, "💎 Choose VIP Plan", reply_markup=markup)
+
+    elif m.text == "👤 My VIP":
+
+        data = load(VIP_FILE)
+        uid = str(m.chat.id)
+
+        if uid not in data:
+            bot.reply_to(m, "❌ VIP inactive")
+        else:
+            expiry = datetime.fromtimestamp(data[uid])
+            bot.reply_to(m, f"💎 VIP ACTIVE\nExpires: {expiry}")
+
+    elif m.text == "📞 Support":
+
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton(
+                "📩 Contact Admin",
+                url="https://t.me/Amudancefx"
+            )
+        )
 
         bot.send_message(
-            c.message.chat.id,
-            f"💎 VIP PLAN\n\n"
-            f"Plan: {days} Days\n"
-            f"Amount: ₦{amount}",
+            m.chat.id,
+            "📞 Support Center",
             reply_markup=markup
         )
 
-    except Exception as e:
-
-        print("PAY ERROR:", e)
-
-        bot.send_message(
-            c.message.chat.id,
-            f"❌ ERROR:\n{e}"
-        )
+    else:
+        bot.reply_to(m, "Use the menu buttons 👇")
 
 # =========================
-# MY VIP
-# =========================
-@bot.message_handler(func=lambda m: m.text == "👤 My VIP")
-def myvip(m):
-
-    data = load(VIP_FILE)
-
-    uid = str(m.chat.id)
-
-    if uid not in data:
-        return bot.reply_to(
-            m,
-            "❌ VIP inactive"
-        )
-
-    expiry = datetime.fromtimestamp(data[uid])
-
-    bot.reply_to(
-        m,
-        f"💎 VIP ACTIVE\n\nExpires:\n{expiry}"
-    )
-
-# =========================
-# SUPPORT
-# =========================
-@bot.message_handler(func=lambda m: m.text == "📞 Support")
-def support(m):
-
-    bot.reply_to(
-        m,
-        "📞 Contact Admin:\n@yourusername"
-    )
-
-# =========================
-# ANALYZE BUTTON
-# =========================
-@bot.message_handler(func=lambda m: m.text == "📊 Analyze Chart")
-def analyze_button(m):
-
-    bot.reply_to(
-        m,
-        "📸 Send chart screenshot now"
-    )
-
-# =========================
-# AI ANALYSIS
+# ANALYZE IMAGE
 # =========================
 @bot.message_handler(content_types=['photo', 'document'])
 def analyze(m):
 
-    try:
+    if not rate_limit(m.chat.id):
+        return bot.reply_to(m, "⛔ Slow down")
 
-        if not rate_limit(m.chat.id):
+    msg = bot.reply_to(m, "📊 Analyzing...")
 
-            return bot.reply_to(
-                m,
-                "⛔ Slow down"
-            )
+    file = bot.get_file(m.photo[-1].file_id if m.photo else m.document.file_id)
+    data = bot.download_file(file.file_path)
 
-        loading = bot.reply_to(
-            m,
-            "📊 Analyzing market..."
-        )
+    path = f"chart_{m.chat.id}.jpg"
+    with open(path, "wb") as f:
+        f.write(data)
 
-        # DOWNLOAD IMAGE
-        if m.photo:
+    image = Image.open(path)
 
-            file_info = bot.get_file(
-                m.photo[-1].file_id
-            )
+    structure, liquidity = smc_engine()
+    vip = is_vip(m.chat.id)
 
-        else:
+    confidence = random.randint(85, 97) if vip else random.randint(60, 80)
 
-            file_info = bot.get_file(
-                m.document.file_id
-            )
+    prompt = f"""
+Market Structure: {structure}
+Liquidity: {liquidity}
 
-        downloaded = bot.download_file(
-            file_info.file_path
-        )
-
-        path = f"chart_{m.chat.id}.jpg"
-
-        with open(path, "wb") as f:
-            f.write(downloaded)
-
-        image = Image.open(path)
-
-        vip = is_vip(m.chat.id)
-
-        structure, liquidity = smc_engine()
-
-        confidence = (
-            random.randint(85, 97)
-            if vip
-            else random.randint(60, 80)
-        )
-
-        prompt = f"""
-You are a professional Smart Money Concepts trader.
-
-Follow this structure:
-
-Market Structure:
-{structure}
-
-Liquidity:
-{liquidity}
-
-Analyze chart and return:
-
-📊 Trend
-📉 Structure
-💧 Liquidity
-📍 Entry
-🛑 Stop Loss
-🎯 Take Profit
-📈 Bias
-⚠ Risk
-🔥 Confidence: {confidence}%
-
-If unclear, say:
-Uncertain market condition
-
-User:
-{'VIP' if vip else 'FREE'}
+Return:
+Trend, Entry, SL, TP, Bias, Risk, Confidence {confidence}%
+User: {'VIP' if vip else 'FREE'}
 """
 
-        # GEMINI
-        res = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt, image]
-        )
+    res = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[prompt, image]
+    )
 
-        result = res.text
+    bot.edit_message_text(
+        res.text,
+        m.chat.id,
+        msg.message_id
+    )
 
-        # SAVE SIGNAL
-        signals = load(SIGNAL_FILE)
-
-        signals[str(time.time())] = result
-
-        save(SIGNAL_FILE, signals)
-
-        # SEND RESULT
-        bot.edit_message_text(
-            chat_id=m.chat.id,
-            message_id=loading.message_id,
-            text=result
-        )
-
-        # REMOVE IMAGE
-        os.remove(path)
-
-    except Exception as e:
-
-        print("ANALYSIS ERROR:", e)
-
-        bot.reply_to(
-            m,
-            f"❌ ERROR:\n{e}"
-        )
+    os.remove(path)
 
 # =========================
-# PAYSTACK WEBHOOK
+# PAYSTACK CALLBACK
+# =========================
+@bot.callback_query_handler(func=lambda c: c.data.startswith("pay_"))
+def pay(c):
+
+    days = int(c.data.split("_")[1])
+    amount = {7:2000, 30:5000, 90:12000}[days]
+
+    url = "https://api.paystack.co/transaction/initialize"
+
+    headers = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "email": f"user{c.message.chat.id}@mail.com",
+        "amount": amount * 100,
+        "metadata": {
+            "user_id": c.message.chat.id,
+            "days": days
+        }
+    }
+
+    r = requests.post(url, json=payload, headers=headers).json()
+
+    if not r.get("status"):
+        return bot.answer_callback_query(c.id, "Error")
+
+    link = r["data"]["authorization_url"]
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("💳 PAY NOW", url=link))
+
+    bot.send_message(c.message.chat.id, f"VIP {days} DAYS - ₦{amount}", reply_markup=markup)
+
+# =========================
+# WEBHOOK
 # =========================
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
-    try:
+    event = request.json
 
-        event = request.json
+    if event["event"] == "charge.success":
 
-        print("WEBHOOK:", event)
+        meta = event["data"]["metadata"]
+        add_vip(meta["user_id"], meta["days"])
 
-        if event["event"] == "charge.success":
+        bot.send_message(meta["user_id"], "🎉 VIP ACTIVATED")
 
-            metadata = (
-                event["data"]
-                .get("metadata", {})
-            )
+        bot.send_message(ADMIN_ID, f"New VIP: {meta['user_id']}")
 
-            user_id = metadata.get("user_id")
-            days = metadata.get("days")
-
-            if user_id and days:
-
-                add_vip(
-                    int(user_id),
-                    int(days)
-                )
-
-                bot.send_message(
-                    user_id,
-                    f"🎉 PAYMENT SUCCESSFUL\n\n"
-                    f"VIP ACTIVE FOR {days} DAYS"
-                )
-
-                bot.send_message(
-                    ADMIN_ID,
-                    f"💰 NEW VIP USER\n\n"
-                    f"User ID: {user_id}\n"
-                    f"Days: {days}"
-                )
-
-        return "OK", 200
-
-    except Exception as e:
-
-        print("WEBHOOK ERROR:", e)
-
-        return "ERROR", 500
+    return "OK"
 
 # =========================
-# HOME
-# =========================
-@app.route("/")
-def home():
-    return "AMUDANCE FX BOT RUNNING"
-
-# =========================
-# BOT RUNNER
+# RUN
 # =========================
 def run_bot():
-
     while True:
-
         try:
+            bot.infinity_polling()
+        except:
+            time.sleep(5)
 
-            print("BOT STARTING...")
-
-            bot.infinity_polling(
-                timeout=60,
-                long_polling_timeout=60,
-                skip_pending=True
-            )
-
-        except Exception as e:
-
-            print("BOT ERROR:", e)
-
-            time.sleep(10)
-
-# =========================
-# MAIN
-# =========================
 if __name__ == "__main__":
 
-    bot_thread = threading.Thread(
-        target=run_bot
-    )
+    threading.Thread(target=run_bot).start()
 
-    bot_thread.daemon = True
-    bot_thread.start()
-
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080))
-                               )
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
