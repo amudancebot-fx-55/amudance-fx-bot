@@ -28,7 +28,7 @@ if not BOT_TOKEN or not GEMINI_API_KEY or not PAYSTACK_SECRET:
 # =========================
 # INIT
 # =========================
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = Flask(__name__)
 
@@ -126,7 +126,7 @@ def smc_engine():
     )
 
 # =========================
-# START
+# START MENU
 # =========================
 @bot.message_handler(commands=['start'])
 def start(m):
@@ -149,15 +149,19 @@ def start(m):
     )
 
 # =========================
-# MENU HANDLER (FIXED)
+# MENU ROUTER (FIXED SAFE)
 # =========================
 @bot.message_handler(content_types=['text'])
-def menu(m):
+def menu_router(m):
 
-    if m.text == "📊 Analyze Chart":
+    add_user(m.chat.id)
+
+    text = m.text
+
+    if text == "📊 Analyze Chart":
         bot.reply_to(m, "📸 Send your chart screenshot now")
 
-    elif m.text == "💎 VIP Plans":
+    elif text == "💎 VIP Plans":
 
         markup = types.InlineKeyboardMarkup()
         markup.add(
@@ -168,7 +172,7 @@ def menu(m):
 
         bot.send_message(m.chat.id, "💎 Choose VIP Plan", reply_markup=markup)
 
-    elif m.text == "👤 My VIP":
+    elif text == "👤 My VIP":
 
         data = load(VIP_FILE)
         uid = str(m.chat.id)
@@ -179,7 +183,7 @@ def menu(m):
             expiry = datetime.fromtimestamp(data[uid])
             bot.reply_to(m, f"💎 VIP ACTIVE\nExpires: {expiry}")
 
-    elif m.text == "📞 Support":
+    elif text == "📞 Support":
 
         markup = types.InlineKeyboardMarkup()
         markup.add(
@@ -293,26 +297,34 @@ def webhook():
     if event["event"] == "charge.success":
 
         meta = event["data"]["metadata"]
+
         add_vip(meta["user_id"], meta["days"])
 
         bot.send_message(meta["user_id"], "🎉 VIP ACTIVATED")
-
         bot.send_message(ADMIN_ID, f"New VIP: {meta['user_id']}")
 
     return "OK"
 
 # =========================
-# RUN
+# RUN BOT (FIXED - NO CONFLICT)
 # =========================
 def run_bot():
     while True:
         try:
-            bot.infinity_polling()
-        except:
+            bot.infinity_polling(
+                timeout=30,
+                long_polling_timeout=30,
+                skip_pending=True
+            )
+        except Exception as e:
+            print("BOT ERROR:", e)
             time.sleep(5)
 
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
 
-    threading.Thread(target=run_bot).start()
+    threading.Thread(target=run_bot, daemon=True).start()
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
