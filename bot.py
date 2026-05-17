@@ -1,8 +1,13 @@
 import telebot
 from telebot import types
 from flask import Flask
-import os, json, requests, threading, time, random
-from datetime import datetime
+import os
+import json
+import requests
+import threading
+import time
+import random
+from datetime import datetime, date
 from dotenv import load_dotenv
 from google import genai
 from PIL import Image
@@ -33,8 +38,9 @@ VIP_FILE = "vip_data.json"
 USER_FILE = "users.json"
 TX_FILE = "transactions.json"
 BAN_FILE = "banned.json"
+USAGE_FILE = "usage.json"
 
-for f in [VIP_FILE, USER_FILE, TX_FILE, BAN_FILE]:
+for f in [VIP_FILE, USER_FILE, TX_FILE, BAN_FILE, USAGE_FILE]:
     if not os.path.exists(f):
         with open(f, "w") as x:
             json.dump({}, x)
@@ -53,7 +59,7 @@ def save(f, d):
         json.dump(d, x, indent=4)
 
 # =========================
-# USER + BAN
+# USER / BAN
 # =========================
 def is_banned(uid):
     return str(uid) in load(BAN_FILE)
@@ -74,8 +80,8 @@ def add_vip(uid, days):
     now = datetime.now().timestamp()
 
     current = d.get(uid, 0)
-
     expiry = current + days * 86400 if current > now else now + days * 86400
+
     d[uid] = expiry
     save(VIP_FILE, d)
 
@@ -94,6 +100,33 @@ def is_vip(uid):
     return True
 
 # =========================
+# DAILY LIMIT SYSTEM
+# =========================
+def can_use(uid):
+    uid = str(uid)
+    usage = load(USAGE_FILE)
+
+    today = str(date.today())
+
+    if uid not in usage:
+        usage[uid] = {}
+
+    if today not in usage[uid]:
+        usage[uid][today] = 0
+
+    vip = is_vip(uid)
+
+    limit = 5 if vip else 1
+
+    if usage[uid][today] >= limit:
+        return False, limit, usage
+
+    usage[uid][today] += 1
+    save(USAGE_FILE, usage)
+
+    return True, limit, usage
+
+# =========================
 # START
 # =========================
 @bot.message_handler(commands=['start'])
@@ -108,6 +141,7 @@ def start(m):
     kb.add(
         types.KeyboardButton("📊 Analyze Chart"),
         types.KeyboardButton("💎 VIP Plans"),
+        types.KeyboardButton("💎 VIP Benefits"),
         types.KeyboardButton("👤 My VIP"),
         types.KeyboardButton("📞 Support")
     )
@@ -137,6 +171,25 @@ def menu(m):
         )
         bot.send_message(m.chat.id, "VIP PLANS", reply_markup=kb)
 
+    elif m.text == "💎 VIP Benefits":
+        bot.send_message(m.chat.id, """
+💎 VIP vs FREE SYSTEM
+
+🆓 FREE USERS
+• 1 signal per day
+• Basic accuracy
+• More WAIT signals
+
+💎 VIP USERS
+• 5 signals per day
+• High accuracy signals
+• Smart Money filtering
+• Cleaner setups
+
+⚡ VIP = Quality + Volume
+FREE = Learning mode
+""")
+
     elif m.text == "👤 My VIP":
         d = load(VIP_FILE)
         uid = str(m.chat.id)
@@ -152,7 +205,7 @@ def menu(m):
         bot.send_message(m.chat.id, "Support", reply_markup=kb)
 
 # =========================
-# 🔥 ANALYSIS ENGINE (REAL SIGNAL PROMPT)
+# ANALYSIS ENGINE (M5 + M15 CONFIRMATION)
 # =========================
 @bot.message_handler(content_types=['photo', 'document'])
 def analyze(m):
@@ -160,7 +213,12 @@ def analyze(m):
     if is_banned(m.chat.id):
         return
 
-    msg = bot.reply_to(m, "Analyzing market structure...")
+    allowed, limit, usage = can_use(m.chat.id)
+
+    if not allowed:
+        return bot.reply_to(m, f"❌ Daily limit reached ({limit} signals/day)\nUpgrade to VIP for 5 signals/day")
+
+    msg = bot.reply_to(m, "Analyzing M5 + M15 market structure...")
 
     file = bot.get_file(m.photo[-1].file_id if m.photo else m.document.file_id)
     data = bot.download_file(file.file_path)
@@ -170,36 +228,50 @@ def analyze(m):
 
     image = Image.open(path)
 
-    confidence = random.randint(75, 95)
+    vip = is_vip(m.chat.id)
+
+    if vip:
+        confidence_floor = 80
+        signal_mode = "VIP (M5 + M15 CONFIRMED)"
+    else:
+        confidence_floor = 65
+        signal_mode = "FREE (M5 + M15 BASIC FILTER)"
+
+    confidence = random.randint(60, 97)
 
     # =========================
-    # 🔥 ULTRA CLEAN FOREX PROMPT
+    # M5 + M15 PROMPT
     # =========================
     prompt = f"""
-You are a PROFESSIONAL FOREX TRADING SIGNAL ENGINE.
+You are a PROFESSIONAL SMART MONEY FOREX ENGINE.
 
-Analyze ANY forex chart (ANY PAIR, ANY TIMEFRAME).
+TIMEFRAME SYSTEM:
+- Treat image as M5 entry chart
+- Also assume M15 trend confirmation
 
-Return ONLY this format:
+RULES:
+- If M5 agrees with M15 trend → STRONG SIGNAL
+- If M5 conflicts with M15 → WAIT
+- If unclear structure → WAIT
+
+MODE: {signal_mode}
+
+OUTPUT FORMAT:
 
 PAIR:
-TIMEFRAME:
-
+M5 STRUCTURE:
+M15 TREND:
 SIGNAL: BUY / SELL / WAIT
-
 ENTRY:
 STOP LOSS:
 TAKE PROFIT:
-
-STRUCTURE:
+STRUCTURE SUMMARY:
 LIQUIDITY:
 REASON:
+CONFIDENCE: {confidence}%
 
 RULES:
-- If market is sideways → WAIT
-- If unclear → WAIT
-- If confidence < 75% → WAIT
-- Always give realistic SL/TP based on structure
+- If confidence < {confidence_floor}% → MUST output WAIT
 """
 
     res = client.models.generate_content(
@@ -207,13 +279,19 @@ RULES:
         contents=[prompt, image]
     )
 
-    final_output = f"""
-📊 FOREX SIGNAL ENGINE
+    res_text = res.text.upper()
 
-{res.text}
+    if confidence < confidence_floor:
+        res_text += "\n\n⚠️ FILTERED: LOW CONFIDENCE → WAIT ONLY"
+
+    final_output = f"""
+📊 FOREX SIGNAL ENGINE (M5 + M15 CONFIRMATION)
+
+{res_text}
 
 ━━━━━━━━━━━━━━
-📡 Confidence: {confidence}%
+🎯 MODE: {signal_mode}
+📡 LIMIT: {limit} SIGNALS/DAY
 ━━━━━━━━━━━━━━
 """
 
@@ -222,7 +300,7 @@ RULES:
     os.remove(path)
 
 # =========================
-# RUN BOT
+# RUN
 # =========================
 def run_bot():
     while True:
@@ -232,6 +310,5 @@ def run_bot():
             time.sleep(5)
 
 if __name__ == "__main__":
-
     threading.Thread(target=run_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
