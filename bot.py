@@ -1,4 +1,5 @@
 import telebot
+from telebot import types
 from flask import Flask, request
 import os
 import json
@@ -73,17 +74,28 @@ def save(file, data):
 # VIP SYSTEM
 # =========================
 def add_vip(user_id, days):
+
     data = load(VIP_FILE)
 
-    expiry = (
-        datetime.now() + timedelta(days=days)
-    ).timestamp()
+    current = datetime.now().timestamp()
+
+    if str(user_id) in data:
+        old_expiry = data[str(user_id)]
+
+        if old_expiry > current:
+            expiry = old_expiry + (days * 86400)
+        else:
+            expiry = current + (days * 86400)
+
+    else:
+        expiry = current + (days * 86400)
 
     data[str(user_id)] = expiry
 
     save(VIP_FILE, data)
 
 def is_vip(user_id):
+
     data = load(VIP_FILE)
 
     uid = str(user_id)
@@ -104,13 +116,16 @@ def is_vip(user_id):
 # USERS
 # =========================
 def add_user(uid):
+
     data = load(USER_FILE)
 
-    data[str(uid)] = {
-        "joined": str(datetime.now())
-    }
+    if str(uid) not in data:
 
-    save(USER_FILE, data)
+        data[str(uid)] = {
+            "joined": str(datetime.now())
+        }
+
+        save(USER_FILE, data)
 
 # =========================
 # RATE LIMIT
@@ -118,19 +133,23 @@ def add_user(uid):
 last_time = {}
 
 def rate_limit(uid):
+
     now = time.time()
 
     if uid in last_time:
+
         if now - last_time[uid] < 8:
             return False
 
     last_time[uid] = now
+
     return True
 
 # =========================
-# SIMPLE SMART MONEY ENGINE
+# SIMPLE SMC ENGINE
 # =========================
 def smc_engine():
+
     structure = random.choice([
         "Bullish structure with higher highs",
         "Bearish structure with lower lows",
@@ -146,29 +165,158 @@ def smc_engine():
     return structure, liquidity
 
 # =========================
-# START
+# START MENU
 # =========================
 @bot.message_handler(commands=['start'])
 def start(m):
 
     add_user(m.chat.id)
 
-    text = (
-        "🚀 AMUDANCE FX BOT\n\n"
-        "Commands:\n"
-        "/pay 7\n"
-        "/pay 30\n"
-        "/pay 90\n"
-        "/myvip\n\n"
-        "Send chart screenshot for analysis 📊"
+    markup = types.ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        row_width=2
     )
 
-    bot.reply_to(m, text)
+    btn1 = types.KeyboardButton("📊 Analyze Chart")
+    btn2 = types.KeyboardButton("💎 VIP Plans")
+    btn3 = types.KeyboardButton("👤 My VIP")
+    btn4 = types.KeyboardButton("📞 Support")
+
+    markup.add(btn1, btn2)
+    markup.add(btn3, btn4)
+
+    text = (
+        "🚀 AMUDANCE FX BOT\n\n"
+        "AI Smart Money Concepts Analysis\n\n"
+        "Send chart screenshot for instant analysis."
+    )
+
+    bot.send_message(
+        m.chat.id,
+        text,
+        reply_markup=markup
+    )
 
 # =========================
-# VIP STATUS
+# VIP MENU
 # =========================
-@bot.message_handler(commands=['myvip'])
+@bot.message_handler(func=lambda m: m.text == "💎 VIP Plans")
+def vip_menu(m):
+
+    markup = types.InlineKeyboardMarkup()
+
+    b1 = types.InlineKeyboardButton(
+        "7 Days - ₦2000",
+        callback_data="pay_7"
+    )
+
+    b2 = types.InlineKeyboardButton(
+        "30 Days - ₦5000",
+        callback_data="pay_30"
+    )
+
+    b3 = types.InlineKeyboardButton(
+        "90 Days - ₦12000",
+        callback_data="pay_90"
+    )
+
+    markup.add(b1)
+    markup.add(b2)
+    markup.add(b3)
+
+    bot.send_message(
+        m.chat.id,
+        "💎 Choose VIP Plan",
+        reply_markup=markup
+    )
+
+# =========================
+# PAYMENT CALLBACK
+# =========================
+@bot.callback_query_handler(func=lambda c: c.data.startswith("pay_"))
+def payment_callback(c):
+
+    try:
+
+        days = int(c.data.split("_")[1])
+
+        if days == 7:
+            amount = 2000
+
+        elif days == 30:
+            amount = 5000
+
+        else:
+            amount = 12000
+
+        url = "https://api.paystack.co/transaction/initialize"
+
+        headers = {
+            "Authorization": f"Bearer {PAYSTACK_SECRET}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "email": f"user{c.message.chat.id}@mail.com",
+            "amount": amount * 100,
+            "metadata": {
+                "user_id": c.message.chat.id,
+                "days": days
+            }
+        }
+
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers
+        )
+
+        res = response.json()
+
+        print("PAYSTACK:", res)
+
+        if not res.get("status"):
+
+            return bot.answer_callback_query(
+                c.id,
+                "Payment Error"
+            )
+
+        pay_link = (
+            res.get("data", {})
+            .get("authorization_url")
+        )
+
+        markup = types.InlineKeyboardMarkup()
+
+        pay_btn = types.InlineKeyboardButton(
+            "💳 PAY NOW",
+            url=pay_link
+        )
+
+        markup.add(pay_btn)
+
+        bot.send_message(
+            c.message.chat.id,
+            f"💎 VIP PLAN\n\n"
+            f"Plan: {days} Days\n"
+            f"Amount: ₦{amount}",
+            reply_markup=markup
+        )
+
+    except Exception as e:
+
+        print("PAY ERROR:", e)
+
+        bot.send_message(
+            c.message.chat.id,
+            f"❌ ERROR:\n{e}"
+        )
+
+# =========================
+# MY VIP
+# =========================
+@bot.message_handler(func=lambda m: m.text == "👤 My VIP")
 def myvip(m):
 
     data = load(VIP_FILE)
@@ -189,106 +337,26 @@ def myvip(m):
     )
 
 # =========================
-# PAYMENT SYSTEM
+# SUPPORT
 # =========================
-@bot.message_handler(commands=['pay'])
-def pay(m):
+@bot.message_handler(func=lambda m: m.text == "📞 Support")
+def support(m):
 
-    try:
+    bot.reply_to(
+        m,
+        "📞 Contact Admin:\n@yourusername"
+    )
 
-        parts = m.text.split()
+# =========================
+# ANALYZE BUTTON
+# =========================
+@bot.message_handler(func=lambda m: m.text == "📊 Analyze Chart")
+def analyze_button(m):
 
-        # VALIDATE COMMAND
-        if len(parts) < 2:
-            return bot.reply_to(
-                m,
-                "Usage:\n/pay 7\n/pay 30\n/pay 90"
-            )
-
-        # GET DAYS
-        days = int(parts[1])
-
-        # VALIDATE PLAN
-        if days not in [7, 30, 90]:
-            return bot.reply_to(
-                m,
-                "Available plans:\n7, 30, 90"
-            )
-
-        # PLAN PRICES
-        if days == 7:
-            amount = 2000
-
-        elif days == 30:
-            amount = 5000
-
-        else:
-            amount = 12000
-
-        # PAYSTACK REQUEST
-        url = "https://api.paystack.co/transaction/initialize"
-
-        headers = {
-            "Authorization": f"Bearer {PAYSTACK_SECRET}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "email": f"user{m.chat.id}@mail.com",
-            "amount": amount * 100,
-            "metadata": {
-                "user_id": m.chat.id,
-                "days": days
-            }
-        }
-
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers
-        )
-
-        res = response.json()
-
-        print("PAYSTACK RESPONSE:", res)
-
-        # CHECK PAYSTACK SUCCESS
-        if not res.get("status"):
-
-            return bot.reply_to(
-                m,
-                f"❌ Paystack Error:\n{res.get('message')}"
-            )
-
-        pay_link = (
-            res.get("data", {})
-            .get("authorization_url")
-        )
-
-        # CHECK LINK
-        if not pay_link:
-            return bot.reply_to(
-                m,
-                "❌ Payment link not generated"
-            )
-
-        # SEND LINK
-        bot.reply_to(
-            m,
-            f"💳 VIP PAYMENT\n\n"
-            f"Plan: {days} days\n"
-            f"Amount: ₦{amount}\n\n"
-            f"Pay here:\n{pay_link}"
-        )
-
-    except Exception as e:
-
-        print("PAY ERROR:", e)
-
-        bot.reply_to(
-            m,
-            f"❌ ERROR:\n{e}"
-        )
+    bot.reply_to(
+        m,
+        "📸 Send chart screenshot now"
+    )
 
 # =========================
 # AI ANALYSIS
@@ -299,6 +367,7 @@ def analyze(m):
     try:
 
         if not rate_limit(m.chat.id):
+
             return bot.reply_to(
                 m,
                 "⛔ Slow down"
@@ -311,10 +380,13 @@ def analyze(m):
 
         # DOWNLOAD IMAGE
         if m.photo:
+
             file_info = bot.get_file(
                 m.photo[-1].file_id
             )
+
         else:
+
             file_info = bot.get_file(
                 m.document.file_id
             )
@@ -323,7 +395,6 @@ def analyze(m):
             file_info.file_path
         )
 
-        # SAVE IMAGE
         path = f"chart_{m.chat.id}.jpg"
 
         with open(path, "wb") as f:
@@ -365,13 +436,13 @@ Analyze chart and return:
 🔥 Confidence: {confidence}%
 
 If unclear, say:
-"Uncertain market condition"
+Uncertain market condition
 
 User:
 {'VIP' if vip else 'FREE'}
 """
 
-        # GEMINI ANALYSIS
+        # GEMINI
         res = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[prompt, image]
@@ -393,7 +464,7 @@ User:
             text=result
         )
 
-        # DELETE IMAGE
+        # REMOVE IMAGE
         os.remove(path)
 
     except Exception as e:
@@ -406,7 +477,7 @@ User:
         )
 
 # =========================
-# WEBHOOK
+# PAYSTACK WEBHOOK
 # =========================
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -417,7 +488,6 @@ def webhook():
 
         print("WEBHOOK:", event)
 
-        # PAYMENT SUCCESS
         if event["event"] == "charge.success":
 
             metadata = (
@@ -457,7 +527,7 @@ def webhook():
         return "ERROR", 500
 
 # =========================
-# HOME ROUTE
+# HOME
 # =========================
 @app.route("/")
 def home():
@@ -487,11 +557,10 @@ def run_bot():
             time.sleep(10)
 
 # =========================
-# START EVERYTHING
+# MAIN
 # =========================
 if __name__ == "__main__":
 
-    # START BOT THREAD
     bot_thread = threading.Thread(
         target=run_bot
     )
@@ -499,8 +568,7 @@ if __name__ == "__main__":
     bot_thread.daemon = True
     bot_thread.start()
 
-    # START FLASK
     app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8080))
-)
+                               )
