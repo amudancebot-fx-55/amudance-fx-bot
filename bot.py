@@ -23,8 +23,6 @@ PAYSTACK_SECRET = os.getenv("PAYSTACK_SECRET_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "12345")
 
-SIGNAL_CHANNEL = os.getenv("SIGNAL_CHANNEL")
-
 if not BOT_TOKEN or not GEMINI_API_KEY or not PAYSTACK_SECRET:
     raise Exception("Missing ENV")
 
@@ -67,25 +65,6 @@ def save(f, d):
 def is_banned(uid):
     return str(uid) in load(BAN_FILE)
 
-def ban(uid):
-    d = load(BAN_FILE)
-    d[str(uid)] = True
-    save(BAN_FILE, d)
-
-def unban(uid):
-    d = load(BAN_FILE)
-    d.pop(str(uid), None)
-    save(BAN_FILE, d)
-
-# =========================
-# USERS
-# =========================
-def add_user(uid):
-    d = load(USER_FILE)
-    if str(uid) not in d:
-        d[str(uid)] = {"joined": str(datetime.now())}
-        save(USER_FILE, d)
-
 # =========================
 # VIP SYSTEM
 # =========================
@@ -120,9 +99,44 @@ def is_vip(uid):
 # =========================
 def smc_engine():
     return (
-        random.choice(["Bullish structure", "Bearish structure", "Sideways"]),
-        random.choice(["Liquidity above", "Liquidity below", "Balanced"])
+        random.choice([
+            "Bullish structure with higher highs",
+            "Bearish structure with lower lows",
+            "Sideways consolidation"
+        ]),
+        random.choice([
+            "Liquidity below lows",
+            "Liquidity above highs",
+            "Balanced liquidity"
+        ])
     )
+
+# =========================
+# SIGNAL ENGINE (REAL LOGIC)
+# =========================
+def signal_engine(structure, liquidity, confidence):
+
+    s = structure.lower()
+    l = liquidity.lower()
+
+    signal = "WAIT"
+    reason = "No strong setup"
+
+    bullish = "bullish" in s or "higher" in s
+    bearish = "bearish" in s or "lower" in s
+
+    buy_ok = "below" in l
+    sell_ok = "above" in l
+
+    if bullish and buy_ok and confidence >= 70:
+        signal = "BUY"
+        reason = "Bullish structure + liquidity below"
+
+    elif bearish and sell_ok and confidence >= 70:
+        signal = "SELL"
+        reason = "Bearish structure + liquidity above"
+
+    return signal, reason
 
 # =========================
 # START
@@ -131,9 +145,7 @@ def smc_engine():
 def start(m):
 
     if is_banned(m.chat.id):
-        return bot.send_message(m.chat.id, "⛔ You are banned")
-
-    add_user(m.chat.id)
+        return bot.send_message(m.chat.id, "⛔ BANNED")
 
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
@@ -155,10 +167,8 @@ def menu(m):
     if is_banned(m.chat.id):
         return bot.send_message(m.chat.id, "⛔ Banned")
 
-    add_user(m.chat.id)
-
     if m.text == "📊 Analyze Chart":
-        bot.reply_to(m, "Send chart")
+        bot.reply_to(m, "Send chart screenshot")
 
     elif m.text == "💎 VIP Plans":
 
@@ -188,13 +198,10 @@ def menu(m):
         bot.send_message(m.chat.id, "Support", reply_markup=kb)
 
 # =========================
-# ANALYSIS
+# ANALYSIS + SIGNAL
 # =========================
 @bot.message_handler(content_types=['photo', 'document'])
 def analyze(m):
-
-    if is_banned(m.chat.id):
-        return
 
     msg = bot.reply_to(m, "Analyzing...")
 
@@ -211,10 +218,18 @@ def analyze(m):
 
     confidence = random.randint(85, 97) if vip else random.randint(60, 80)
 
+    signal, reason = signal_engine(structure, liquidity, confidence)
+
     prompt = f"""
+You are a trading analyst.
+
 Structure: {structure}
 Liquidity: {liquidity}
 Confidence: {confidence}%
+
+ONLY OUTPUT:
+SIGNAL: {signal}
+REASON: {reason}
 """
 
     res = client.models.generate_content(
@@ -222,7 +237,14 @@ Confidence: {confidence}%
         contents=[prompt, image]
     )
 
-    bot.edit_message_text(res.text, m.chat.id, msg.message_id)
+    final_text = f"""
+{res.text}
+
+🔥 FINAL DECISION: {signal}
+📌 REASON: {reason}
+"""
+
+    bot.edit_message_text(final_text, m.chat.id, msg.message_id)
 
     os.remove(path)
 
@@ -288,15 +310,12 @@ def webhook():
 def vip_cleaner():
 
     while True:
-
         d = load(VIP_FILE)
         now = datetime.now().timestamp()
 
         for uid in list(d.keys()):
-
             if now > d[uid]:
                 del d[uid]
-
                 try:
                     bot.send_message(uid, "❌ VIP EXPIRED")
                 except:
@@ -304,77 +323,6 @@ def vip_cleaner():
 
         save(VIP_FILE, d)
         time.sleep(60)
-
-# =========================
-# PAYMENT CHECKER
-# =========================
-def payment_checker():
-
-    while True:
-
-        tx = load(TX_FILE)
-
-        for uid, data in tx.items():
-
-            if data.get("paid"):
-                continue
-
-            try:
-                r = requests.get(
-                    f"https://api.paystack.co/transaction/verify/{data['reference']}",
-                    headers={"Authorization": f"Bearer {PAYSTACK_SECRET}"}
-                ).json()
-
-                if r.get("data", {}).get("status") == "success":
-
-                    add_vip(int(uid), int(data["days"]))
-                    tx[uid]["paid"] = True
-                    save(TX_FILE, tx)
-
-                    bot.send_message(uid, "🎉 VIP ACTIVATED (AUTO)")
-
-            except:
-                pass
-
-        time.sleep(30)
-
-# =========================
-# ADMIN DASHBOARD PRO
-# =========================
-@app.route("/admin")
-def admin():
-
-    if request.args.get("pass") != ADMIN_PASSWORD:
-        return "NO ACCESS", 403
-
-    users = load(USER_FILE)
-    vip = load(VIP_FILE)
-    tx = load(TX_FILE)
-
-    revenue = sum(
-        2000 if v["days"] == 7 else 5000 if v["days"] == 30 else 12000
-        for v in tx.values()
-        if v.get("paid")
-    )
-
-    html = f"""
-    <h1>ADMIN DASHBOARD</h1>
-    <p>Users: {len(users)}</p>
-    <p>VIP: {len(vip)}</p>
-    <p>Revenue: ₦{revenue}</p>
-
-    <h2>VIP USERS</h2>
-    """
-
-    for u, t in vip.items():
-        html += f"<p>{u} - {datetime.fromtimestamp(t)}</p>"
-
-    html += "<h2>TRANSACTIONS</h2>"
-
-    for u, t in tx.items():
-        html += f"<p>{u} - {t}</p>"
-
-    return html
 
 # =========================
 # RUN
@@ -389,7 +337,6 @@ def run_bot():
 if __name__ == "__main__":
 
     threading.Thread(target=run_bot, daemon=True).start()
-    threading.Thread(target=payment_checker, daemon=True).start()
     threading.Thread(target=vip_cleaner, daemon=True).start()
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
