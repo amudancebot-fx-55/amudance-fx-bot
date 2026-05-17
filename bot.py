@@ -1,6 +1,6 @@
 import telebot
 from telebot import types
-from flask import Flask
+from flask import Flask, request
 import os, json, requests, threading, time, random
 from datetime import datetime, date
 from dotenv import load_dotenv
@@ -13,8 +13,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAYSTACK_SECRET = os.getenv("PAYSTACK_SECRET_KEY")
-
-ADMIN_ID = os.getenv("ADMIN_ID")  # 🔥 ADD THIS IN .env
+ADMIN_ID = str(os.getenv("ADMIN_ID"))
 
 bot = telebot.TeleBot(BOT_TOKEN)
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -23,8 +22,9 @@ app = Flask(__name__)
 # ================= FILES =================
 USERS_FILE = "users.json"
 VIP_FILE = "vip.json"
+TX_FILE = "tx.json"
 
-for f in [USERS_FILE, VIP_FILE]:
+for f in [USERS_FILE, VIP_FILE, TX_FILE]:
     if not os.path.exists(f):
         json.dump({}, open(f, "w"))
 
@@ -79,18 +79,15 @@ def add_vip(uid, days):
     vip[uid] = current + days * 86400 if current > now else now + days * 86400
     save(VIP_FILE, vip)
 
-# ================= CREDIT ENGINE (FIXED) =================
+# ================= CREDIT SYSTEM =================
 def can_use(uid):
-
     uid = str(uid)
     users = load(USERS_FILE)
     users = get_user(uid)
 
     vip = is_vip(uid)
 
-    # ===== FREE USERS =====
     if not vip:
-
         last = users[uid]["free_used"]
 
         if last:
@@ -101,10 +98,8 @@ def can_use(uid):
 
         users[uid]["free_used"] = str(date.today())
         save(USERS_FILE, users)
-
         return True, 0
 
-    # ===== VIP USERS =====
     users[uid]["credits"] += 2
 
     if users[uid]["credits"] <= 0:
@@ -116,7 +111,7 @@ def can_use(uid):
 
     return True, users[uid]["credits"]
 
-# ================= START (ADVANCED UI) =================
+# ================= START =================
 @bot.message_handler(commands=['start'])
 def start(m):
 
@@ -137,105 +132,83 @@ def start(m):
 
     kb.add(
         types.InlineKeyboardButton("📞 Support", callback_data="support"),
-        types.InlineKeyboardButton("🛠 Admin", callback_data="admin_panel")
+        types.InlineKeyboardButton("🛠 Admin", callback_data="admin")
     )
 
     bot.send_message(uid, "🚀 FX ENGINE PRO DASHBOARD", reply_markup=kb)
 
-# ================= CALLBACK SYSTEM =================
+# ================= CALLBACK =================
 @bot.callback_query_handler(func=lambda c: True)
 def menu(c):
 
-    uid = c.message.chat.id
-    users = load(USERS_FILE)
+    uid = str(c.message.chat.id)
 
-    # ===== HOME =====
-    def home():
-        kb = types.InlineKeyboardMarkup(row_width=2)
+    if c.data == "home":
+        return start(c.message)
 
-        kb.add(
-            types.InlineKeyboardButton("📊 Analyze", callback_data="analyze"),
-            types.InlineKeyboardButton("💎 VIP Plans", callback_data="vip")
-        )
+    # ===== ANALYZE BUTTON FIX =====
+    if c.data == "analyze":
+        allowed, credits = can_use(uid)
 
-        kb.add(
-            types.InlineKeyboardButton("💎 Benefits", callback_data="benefits"),
-            types.InlineKeyboardButton("👤 My VIP", callback_data="myvip")
-        )
+        if not allowed:
+            return bot.answer_callback_query(c.id, "❌ NO CREDITS")
 
-        kb.add(
-            types.InlineKeyboardButton("📞 Support", callback_data="support"),
-            types.InlineKeyboardButton("🛠 Admin", callback_data="admin_panel")
-        )
+        bot.send_message(uid, "📤 SEND YOUR CHART IMAGE NOW")
+        return
 
-        bot.edit_message_text("🚀 DASHBOARD", uid, c.message.message_id, reply_markup=kb)
+    # ===== VIP =====
+    if c.data == "vip":
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("💎 VIP 5 DAYS - ₦2000", callback_data="pay_vip"))
+        kb.add(types.InlineKeyboardButton("⚡ 1 SIGNAL - ₦500", callback_data="pay_signal"))
+        kb.add(types.InlineKeyboardButton("⬅️ BACK", callback_data="home"))
+        bot.edit_message_text("💎 VIP STORE", uid, c.message.message_id, reply_markup=kb)
 
-    # ===== VIP BENEFITS =====
+    # ===== BENEFITS =====
     if c.data == "benefits":
-
         text = """
 💎 VIP BENEFITS
 
 🆓 FREE:
 • 1 signal / 7 days
-• Basic AI analysis
 
 💎 VIP:
 • 2 signals daily
-• Smart Money Concept
-• Liquidity detection
-• Faster processing
-
-⚡ SYSTEM:
-• Credits never expire
+• Smart Money Analysis
+• Better accuracy
 """
-
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data="home"))
-
+        kb.add(types.InlineKeyboardButton("⬅️ BACK", callback_data="home"))
         bot.edit_message_text(text, uid, c.message.message_id, reply_markup=kb)
 
-    # ===== VIP PLANS =====
-    elif c.data == "vip":
-
-        kb = types.InlineKeyboardMarkup()
-
-        kb.add(types.InlineKeyboardButton("💎 VIP 5 DAYS - ₦2000", callback_data="pay_vip"))
-        kb.add(types.InlineKeyboardButton("⚡ 1 SIGNAL - ₦500", callback_data="pay_signal"))
-        kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data="home"))
-
-        bot.edit_message_text("💳 VIP STORE", uid, c.message.message_id, reply_markup=kb)
-
     # ===== MY VIP =====
-    elif c.data == "myvip":
-
+    if c.data == "myvip":
         vip = load(VIP_FILE)
-        credits = users.get(str(uid), {}).get("credits", 0)
+        users = load(USERS_FILE)
 
-        if str(uid) not in vip:
+        credits = users.get(uid, {}).get("credits", 0)
+
+        if uid not in vip:
             text = f"❌ NOT VIP\n🎟 Credits: {credits}"
         else:
-            text = f"💎 VIP ACTIVE\n📅 {datetime.fromtimestamp(vip[str(uid)])}\n🎟 Credits: {credits}"
+            text = f"💎 VIP ACTIVE\n📅 {datetime.fromtimestamp(vip[uid])}\n🎟 Credits: {credits}"
 
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data="home"))
+        kb.add(types.InlineKeyboardButton("⬅️ BACK", callback_data="home"))
 
         bot.edit_message_text(text, uid, c.message.message_id, reply_markup=kb)
 
     # ===== SUPPORT =====
-    elif c.data == "support":
-
+    if c.data == "support":
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("Admin", url="https://t.me/Amudancefx"))
-        kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data="home"))
-
-        bot.edit_message_text("📞 Support Center", uid, c.message.message_id, reply_markup=kb)
+        kb.add(types.InlineKeyboardButton("ADMIN", url="https://t.me/Amudancefx"))
+        kb.add(types.InlineKeyboardButton("⬅️ BACK", callback_data="home"))
+        bot.edit_message_text("📞 SUPPORT", uid, c.message.message_id, reply_markup=kb)
 
     # ===== ADMIN PANEL =====
-    elif c.data == "admin_panel":
-
-        if str(uid) != str(ADMIN_ID):
-            return bot.answer_callback_query(c.id, "❌ Not admin")
+    if c.data == "admin":
+        if uid != ADMIN_ID:
+            return bot.answer_callback_query(c.id, "❌ NOT ADMIN")
 
         users = load(USERS_FILE)
         vip = load(VIP_FILE)
@@ -244,29 +217,29 @@ def menu(c):
 🛠 ADMIN PANEL
 
 👥 USERS: {len(users)}
-💎 VIP USERS: {len(vip)}
-
-Commands:
-• Ban user (manual in code)
-• Add VIP (manual)
+💎 VIP: {len(vip)}
 """
 
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data="home"))
-
+        kb.add(types.InlineKeyboardButton("⬅️ BACK", callback_data="home"))
         bot.edit_message_text(text, uid, c.message.message_id, reply_markup=kb)
 
-    # ===== HOME =====
-    elif c.data == "home":
-        home()
+    # ===== PAYSTACK (SIMPLIFIED) =====
+    if c.data in ["pay_vip", "pay_signal"]:
+        bot.send_message(uid, "💳 PAYMENT SYSTEM NOT YET HOOKED TO LIVE KEY\nUse manual activation for now")
 
-# ================= ANALYSIS ENGINE =================
+# ================= ANALYSIS ENGINE FIXED =================
 @bot.message_handler(content_types=['photo'])
 def analyze(m):
 
+    uid = str(m.chat.id)
+
     msg = bot.reply_to(m, "📡 ANALYZING...")
 
-    uid = str(m.chat.id)
+    allowed, credits = can_use(uid)
+
+    if not allowed:
+        return bot.edit_message_text("❌ NO CREDITS", uid, msg.message_id)
 
     file = bot.get_file(m.photo[-1].file_id)
     data = bot.download_file(file.file_path)
@@ -278,13 +251,8 @@ def analyze(m):
 
     vip = is_vip(uid)
     confidence = random.randint(60, 97)
-    floor = 80 if vip else 65
 
-    prompt = f"""
-FOREX SMART MONEY ANALYSIS
-MODE: {"VIP" if vip else "FREE"}
-CONFIDENCE: {confidence}%
-"""
+    prompt = f"FOREX ANALYSIS MODE: {'VIP' if vip else 'FREE'} CONFIDENCE: {confidence}%"
 
     try:
         res = client.models.generate_content(
@@ -292,17 +260,11 @@ CONFIDENCE: {confidence}%
             contents=[prompt, image]
         )
         text = res.text.upper()
-
-    except Exception:
-        text = "⚠️ AI LIMIT REACHED - TRY AGAIN LATER"
-
-    if confidence < floor:
-        text += "\n\n⚠️ WAIT ONLY"
-
-    _, credits = can_use(uid)
+    except:
+        text = "⚠️ GEMINI ERROR - TRY AGAIN"
 
     bot.edit_message_text(
-        f"{text}\n\n🎟 Credits: {credits}",
+        f"{text}\n\n🎟 Credits Left: {credits}",
         uid,
         msg.message_id
     )
@@ -314,7 +276,8 @@ def run():
     while True:
         try:
             bot.infinity_polling(skip_pending=True)
-        except:
+        except Exception as e:
+            print(e)
             time.sleep(5)
 
 if __name__ == "__main__":
