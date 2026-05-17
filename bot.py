@@ -21,7 +21,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAYSTACK_SECRET = os.getenv("PAYSTACK_SECRET_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "12345")
 
 if not BOT_TOKEN or not GEMINI_API_KEY or not PAYSTACK_SECRET:
     raise Exception("Missing ENV")
@@ -39,9 +38,8 @@ app = Flask(__name__)
 VIP_FILE = "vip_data.json"
 USER_FILE = "users.json"
 TX_FILE = "transactions.json"
-BAN_FILE = "banned.json"
 
-for f in [VIP_FILE, USER_FILE, TX_FILE, BAN_FILE]:
+for f in [VIP_FILE, USER_FILE, TX_FILE]:
     if not os.path.exists(f):
         with open(f, "w") as x:
             json.dump({}, x)
@@ -60,24 +58,31 @@ def save(f, d):
         json.dump(d, x, indent=4)
 
 # =========================
-# BAN SYSTEM
+# USERS
 # =========================
-def is_banned(uid):
-    return str(uid) in load(BAN_FILE)
+def add_user(uid):
+    d = load(USER_FILE)
+    uid = str(uid)
+    if uid not in d:
+        d[uid] = {"joined": str(datetime.now())}
+        save(USER_FILE, d)
 
 # =========================
-# VIP SYSTEM
+# VIP SYSTEM (FIXED)
 # =========================
 def add_vip(uid, days):
     d = load(VIP_FILE)
+    uid = str(uid)
     now = datetime.now().timestamp()
 
-    if str(uid) in d and d[str(uid)] > now:
-        expiry = d[str(uid)] + days * 86400
+    current = d.get(uid, 0)
+
+    if current > now:
+        expiry = current + days * 86400
     else:
         expiry = now + days * 86400
 
-    d[str(uid)] = expiry
+    d[uid] = expiry
     save(VIP_FILE, d)
 
 def is_vip(uid):
@@ -100,43 +105,34 @@ def is_vip(uid):
 def smc_engine():
     return (
         random.choice([
-            "Bullish structure with higher highs",
-            "Bearish structure with lower lows",
-            "Sideways consolidation"
+            "Bullish structure (higher highs, higher lows)",
+            "Bearish structure (lower highs, lower lows)",
+            "Sideways consolidation zone"
         ]),
         random.choice([
-            "Liquidity below lows",
-            "Liquidity above highs",
-            "Balanced liquidity"
+            "Liquidity below equal lows",
+            "Liquidity above equal highs",
+            "Balanced liquidity zone"
         ])
     )
 
 # =========================
-# SIGNAL ENGINE (REAL LOGIC)
+# SIGNAL ENGINE
 # =========================
 def signal_engine(structure, liquidity, confidence):
 
     s = structure.lower()
     l = liquidity.lower()
 
-    signal = "WAIT"
-    reason = "No strong setup"
+    bullish = "bullish" in s or "higher highs" in s
+    bearish = "bearish" in s or "lower highs" in s
 
-    bullish = "bullish" in s or "higher" in s
-    bearish = "bearish" in s or "lower" in s
-
-    buy_ok = "below" in l
-    sell_ok = "above" in l
-
-    if bullish and buy_ok and confidence >= 70:
-        signal = "BUY"
-        reason = "Bullish structure + liquidity below"
-
-    elif bearish and sell_ok and confidence >= 70:
-        signal = "SELL"
-        reason = "Bearish structure + liquidity above"
-
-    return signal, reason
+    if bullish and "below" in l and confidence >= 70:
+        return "BUY", "Bullish structure + liquidity below"
+    elif bearish and "above" in l and confidence >= 70:
+        return "SELL", "Bearish structure + liquidity above"
+    else:
+        return "WAIT", "No strong setup"
 
 # =========================
 # START
@@ -144,8 +140,7 @@ def signal_engine(structure, liquidity, confidence):
 @bot.message_handler(commands=['start'])
 def start(m):
 
-    if is_banned(m.chat.id):
-        return bot.send_message(m.chat.id, "⛔ BANNED")
+    add_user(m.chat.id)
 
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
@@ -156,7 +151,11 @@ def start(m):
         types.KeyboardButton("📞 Support")
     )
 
-    bot.send_message(m.chat.id, "🚀 AMUDANCE FX BOT", reply_markup=kb)
+    bot.send_message(
+        m.chat.id,
+        "🚀 AMUDANCE FX BOT\nAI Smart Money System",
+        reply_markup=kb
+    )
 
 # =========================
 # MENU
@@ -164,8 +163,7 @@ def start(m):
 @bot.message_handler(content_types=['text'])
 def menu(m):
 
-    if is_banned(m.chat.id):
-        return bot.send_message(m.chat.id, "⛔ Banned")
+    add_user(m.chat.id)
 
     if m.text == "📊 Analyze Chart":
         bot.reply_to(m, "Send chart screenshot")
@@ -179,7 +177,7 @@ def menu(m):
             types.InlineKeyboardButton("90 Days - ₦12000", callback_data="pay_90")
         )
 
-        bot.send_message(m.chat.id, "VIP Plans", reply_markup=kb)
+        bot.send_message(m.chat.id, "VIP PLANS", reply_markup=kb)
 
     elif m.text == "👤 My VIP":
 
@@ -189,16 +187,16 @@ def menu(m):
         if uid not in d:
             bot.reply_to(m, "❌ VIP inactive")
         else:
-            bot.reply_to(m, f"VIP ACTIVE\nExpires: {datetime.fromtimestamp(d[uid])}")
+            bot.reply_to(m, f"💎 VIP ACTIVE\nExpires: {datetime.fromtimestamp(d[uid])}")
 
     elif m.text == "📞 Support":
 
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("Admin", url="https://t.me/Amudancefx"))
-        bot.send_message(m.chat.id, "Support", reply_markup=kb)
+        kb.add(types.InlineKeyboardButton("Contact Admin", url="https://t.me/Amudancefx"))
+        bot.send_message(m.chat.id, "Support Center", reply_markup=kb)
 
 # =========================
-# ANALYSIS + SIGNAL
+# ANALYSIS
 # =========================
 @bot.message_handler(content_types=['photo', 'document'])
 def analyze(m):
@@ -214,8 +212,8 @@ def analyze(m):
     image = Image.open(path)
 
     vip = is_vip(m.chat.id)
-    structure, liquidity = smc_engine()
 
+    structure, liquidity = smc_engine()
     confidence = random.randint(85, 97) if vip else random.randint(60, 80)
 
     signal, reason = signal_engine(structure, liquidity, confidence)
@@ -225,11 +223,11 @@ You are a trading analyst.
 
 Structure: {structure}
 Liquidity: {liquidity}
-Confidence: {confidence}%
+Confidence: {confidence}
 
 ONLY OUTPUT:
-SIGNAL: {signal}
-REASON: {reason}
+SIGNAL: BUY/SELL/WAIT
+REASON: short reason
 """
 
     res = client.models.generate_content(
@@ -237,19 +235,21 @@ REASON: {reason}
         contents=[prompt, image]
     )
 
-    final_text = f"""
+    final = f"""
 {res.text}
 
-🔥 FINAL DECISION: {signal}
+━━━━━━━━━━━━━━
+🔥 FINAL: {signal}
 📌 REASON: {reason}
+━━━━━━━━━━━━━━
 """
 
-    bot.edit_message_text(final_text, m.chat.id, msg.message_id)
+    bot.edit_message_text(final, m.chat.id, msg.message_id)
 
     os.remove(path)
 
 # =========================
-# PAYSTACK
+# PAYSTACK INIT (FIXED RELIABILITY)
 # =========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("pay_"))
 def pay(c):
@@ -263,44 +263,57 @@ def pay(c):
         json={
             "email": f"user{c.message.chat.id}@mail.com",
             "amount": amount * 100,
-            "metadata": {"user_id": c.message.chat.id, "days": days}
+            "metadata": {
+                "user_id": str(c.message.chat.id),
+                "days": str(days)
+            }
         }
     ).json()
 
     if not r.get("status"):
-        return bot.answer_callback_query(c.id, "Error")
+        return bot.answer_callback_query(c.id, "Payment Error")
 
     link = r["data"]["authorization_url"]
+    ref = r["data"]["reference"]
 
     tx = load(TX_FILE)
-    tx[str(c.message.chat.id)] = {
-        "days": days,
-        "reference": r["data"]["reference"],
-        "paid": False
+    tx[ref] = {
+        "user_id": str(c.message.chat.id),
+        "days": int(days),
+        "paid": False,
+        "time": time.time()
     }
     save(TX_FILE, tx)
 
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("PAY NOW", url=link))
+    kb.add(types.InlineKeyboardButton("💳 PAY NOW", url=link))
 
-    bot.send_message(c.message.chat.id, "Complete payment", reply_markup=kb)
+    bot.send_message(c.message.chat.id, f"VIP {days} DAYS READY", reply_markup=kb)
 
 # =========================
-# WEBHOOK
+# WEBHOOK (PRIMARY + SAFE)
 # =========================
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
     e = request.json
 
-    if e["event"] == "charge.success":
+    if e.get("event") == "charge.success":
 
-        meta = e["data"]["metadata"]
+        ref = e["data"]["reference"]
+        tx = load(TX_FILE)
 
-        add_vip(int(meta["user_id"]), int(meta["days"]))
+        if ref in tx and not tx[ref]["paid"]:
 
-        bot.send_message(meta["user_id"], "🎉 VIP ACTIVATED")
-        bot.send_message(ADMIN_ID, f"VIP USER: {meta['user_id']}")
+            data = tx[ref]
+
+            add_vip(data["user_id"], int(data["days"]))
+
+            tx[ref]["paid"] = True
+            save(TX_FILE, tx)
+
+            bot.send_message(data["user_id"], "🎉 VIP ACTIVATED")
+            bot.send_message(ADMIN_ID, f"VIP USER: {data['user_id']}")
 
     return "OK"
 
@@ -334,6 +347,9 @@ def run_bot():
         except:
             time.sleep(5)
 
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
 
     threading.Thread(target=run_bot, daemon=True).start()
