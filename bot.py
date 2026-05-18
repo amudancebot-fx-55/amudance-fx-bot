@@ -286,7 +286,7 @@ def start(m):
         f"""
 🚀 AMUDANCE FX AI
 
-🤖 Powered by Gemini 2.5 Flash
+🤖 Powered by trading bible 
 
 💎 Credits:
 {get_credit(m.chat.id)}
