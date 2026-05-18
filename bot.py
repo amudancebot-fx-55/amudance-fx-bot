@@ -30,7 +30,7 @@ if not GEMINI_API_KEY:
 # =========================
 BANK_NAME = "OPay"
 ACCOUNT_NUMBER = "7048508048"
-ACCOUNT_NAME = FX BOT 📊(AMUJO TIMILEHIN)"
+ACCOUNT_NAME = "AMUJO TIMILEHIN"
 
 # =========================
 # INIT
