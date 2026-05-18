@@ -200,7 +200,7 @@ def buy(m):
     bot.send_message(m.chat.id, "💎 Choose plan:", reply_markup=markup)
 
 # =========================
-# BUY CALLBACK
+# BUY CALLBACK + PAYMENT REQUEST
 # =========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("buy_"))
 def buy_callback(c):
@@ -208,15 +208,22 @@ def buy_callback(c):
     _, amount, credits = c.data.split("_")
 
     pending = load("pending_payments.json")
-    pending[str(c.message.chat.id)] = {
+    uid = str(c.message.chat.id)
+
+    pending[uid] = {
         "amount": int(amount),
         "credits": int(credits),
         "time": str(datetime.now())
     }
     save("pending_payments.json", pending)
 
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("✅ I HAVE PAID", callback_data=f"paid_{uid}")
+    )
+
     bot.send_message(
-        c.message.chat.id,
+        uid,
         f"""
 🏦 BANK DETAILS
 {BANK_NAME}
@@ -225,11 +232,80 @@ def buy_callback(c):
 
 💰 Amount: ₦{amount}
 💎 Credits: {credits}
-"""
+
+⚠️ After payment click below
+""",
+        reply_markup=markup
     )
 
 # =========================
-# IMAGE HANDLER (FULL LOGIC FIX)
+# USER SAYS PAID
+# =========================
+@bot.callback_query_handler(func=lambda c: c.data.startswith("paid_"))
+def user_paid(c):
+
+    uid = c.data.split("_")[1]
+    pending = load("pending_payments.json")
+
+    if uid not in pending:
+        return bot.answer_callback_query(c.id, "No pending payment")
+
+    data = pending[uid]
+
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{uid}"),
+        types.InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{uid}")
+    )
+
+    bot.send_message(
+        ADMIN_ID,
+        f"""
+💰 PAYMENT REQUEST
+
+User: {uid}
+Amount: ₦{data['amount']}
+Credits: {data['credits']}
+Time: {data['time']}
+""",
+        reply_markup=markup
+    )
+
+    bot.answer_callback_query(c.id, "Sent for review ✅")
+
+# =========================
+# ADMIN APPROVE / REJECT
+# =========================
+@bot.callback_query_handler(func=lambda c: c.data.startswith("approve_") or c.data.startswith("reject_"))
+def admin_action(c):
+
+    if c.from_user.id != ADMIN_ID:
+        return bot.answer_callback_query(c.id, "Not allowed")
+
+    action, uid = c.data.split("_")
+    pending = load("pending_payments.json")
+
+    if uid not in pending:
+        return bot.answer_callback_query(c.id, "Already processed")
+
+    data = pending[uid]
+
+    if action == "approve":
+        add_credit(uid, data["credits"])
+        bot.send_message(uid, f"✅ Payment approved!\n🎉 {data['credits']} credits added")
+        bot.send_message(ADMIN_ID, "Approved ✅")
+
+    else:
+        bot.send_message(uid, "❌ Payment rejected. Contact support.")
+        bot.send_message(ADMIN_ID, "Rejected ❌")
+
+    del pending[uid]
+    save("pending_payments.json", pending)
+
+    bot.answer_callback_query(c.id, "Done")
+
+# =========================
+# IMAGE HANDLER
 # =========================
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_image(m):
@@ -242,33 +318,20 @@ def handle_image(m):
             return bot.reply_to(m, "❌ Only images allowed")
         file_info = bot.get_file(m.document.file_id)
 
+    uid = str(m.chat.id)
     pending = load("pending_payments.json")
 
-    uid = str(m.chat.id)
-
-    # =========================
-    # PAID USERS
-    # =========================
     if uid in pending:
-
         if not use_credit(m.chat.id):
-            return bot.reply_to(m, "❌ No credits left. Buy more.")
-
+            return bot.reply_to(m, "❌ No credits left")
         analyze_market(m, file_info)
         return
 
-    # =========================
-    # FREE USERS
-    # =========================
     if can_use_free(m.chat.id):
-
         use_free(m.chat.id)
         analyze_market(m, file_info)
         return
 
-    # =========================
-    # BLOCKED USERS
-    # =========================
     bot.reply_to(m, "❌ Free trial ended. Please buy credits.")
 
 # =========================
@@ -289,7 +352,7 @@ def support(m):
     bot.reply_to(m, "Contact: @Amudancefx")
 
 # =========================
-# ANALYZE BUTTON
+# ANALYZE
 # =========================
 @bot.message_handler(func=lambda m: m.text == "📊 Analyze Market")
 def ask(m):
