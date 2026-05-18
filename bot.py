@@ -51,10 +51,8 @@ for f in FILES:
 # =========================
 # GEMINI MODELS (AUTO FIX)
 # =========================
-GEMINI_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+GEMINI_MODEL = [
+    "gemini-2.5-flash"
 ]
 
 # =========================
