@@ -49,7 +49,9 @@ FILES = [
 ]
 
 for f in FILES:
+
     if not os.path.exists(f):
+
         with open(f, "w") as x:
             json.dump({}, x)
 
@@ -62,12 +64,15 @@ GEMINI_MODEL = "gemini-2.5-flash"
 # HELPERS
 # =========================
 def load(f):
+
     try:
         return json.load(open(f))
+
     except:
         return {}
 
 def save(f, d):
+
     with open(f, "w") as x:
         json.dump(d, x, indent=4)
 
@@ -75,6 +80,7 @@ def save(f, d):
 # LIMIT MESSAGE
 # =========================
 def limit_message():
+
     return (
         "⚠️ Bot overload or AI limit reached.\n\n"
         "Please wait for about 30 minutes and try again.\n"
@@ -85,21 +91,29 @@ def limit_message():
 # CREDIT SYSTEM
 # =========================
 def get_credit(uid):
+
     return load("credits.json").get(str(uid), 0)
 
 def add_credit(uid, amt):
+
     d = load("credits.json")
+
     d[str(uid)] = d.get(str(uid), 0) + amt
+
     save("credits.json", d)
 
 def use_credit(uid):
 
     d = load("credits.json")
+
     uid = str(uid)
 
     if d.get(uid, 0) > 0:
+
         d[uid] -= 1
+
         save("credits.json", d)
+
         return True
 
     return False
@@ -110,9 +124,11 @@ def use_credit(uid):
 FREE_LIMIT = 2
 
 def get_free_used(uid):
+
     return load("free_trial.json").get(str(uid), 0)
 
 def can_use_free(uid):
+
     return get_free_used(uid) < FREE_LIMIT
 
 def use_free(uid):
@@ -129,6 +145,7 @@ def use_free(uid):
 def human_delay(chat_id, sec=2):
 
     bot.send_chat_action(chat_id, "typing")
+
     time.sleep(sec)
 
 # =========================
@@ -155,9 +172,23 @@ def call_gemini(prompt, image_base64):
             return response.text
 
     except Exception as e:
+
         print("Gemini Error:", e)
 
     return None
+
+# =========================
+# SEND LONG MESSAGE SAFELY
+# =========================
+def send_long_message(chat_id, text):
+
+    MAX_LENGTH = 4000
+
+    for i in range(0, len(text), MAX_LENGTH):
+
+        chunk = text[i:i + MAX_LENGTH]
+
+        bot.send_message(chat_id, chunk)
 
 # =========================
 # AI ANALYSIS
@@ -200,55 +231,90 @@ Extra Rules:
 - Give realistic entries
 - Keep formatting clean
 - Use emojis professionally
+- Give clean sniper entries
+- Mention invalidation zone
+- Mention confidence level
 
 Keep it structured, clean, and precise.
 """
 
         # LOADING EFFECT
-        bot.send_message(message.chat.id, "📡 Upload received...")
+        bot.send_message(
+            message.chat.id,
+            "📡 Upload received..."
+        )
+
         human_delay(message.chat.id, 1)
 
-        bot.send_message(message.chat.id, "🧠 AI analyzing chart...")
+        bot.send_message(
+            message.chat.id,
+            "🧠 AI analyzing chart..."
+        )
+
         human_delay(message.chat.id, 1)
 
-        bot.send_message(message.chat.id, "📊 Processing market structure...")
+        bot.send_message(
+            message.chat.id,
+            "📊 Processing market structure..."
+        )
+
         human_delay(message.chat.id, 1)
 
-        bot.send_message(message.chat.id, "💹 Detecting liquidity zones...")
+        bot.send_message(
+            message.chat.id,
+            "💹 Detecting liquidity zones..."
+        )
+
         human_delay(message.chat.id, 1)
 
-        bot.send_message(message.chat.id, "🏦 Tracking institutional bias...")
+        bot.send_message(
+            message.chat.id,
+            "🏦 Tracking institutional bias..."
+        )
+
         human_delay(message.chat.id, 1)
 
         # READ IMAGE
         with open(path, "rb") as f:
+
             image_bytes = f.read()
 
-        image_base64 = base64.b64encode(image_bytes).decode()
+        image_base64 = base64.b64encode(
+            image_bytes
+        ).decode()
 
         # GEMINI RESPONSE
-        result = call_gemini(prompt, image_base64)
+        result = call_gemini(
+            prompt,
+            image_base64
+        )
 
         if not result:
+
             bot.send_message(
                 message.chat.id,
                 limit_message()
             )
+
             return
 
-        # SEND RESULT
-        bot.send_message(
-            message.chat.id,
-            f"""
+        # FINAL TEXT
+        final_text = f"""
 ✅ ANALYSIS COMPLETE
 
 {result}
 """
+
+        # SEND LONG MESSAGE SAFELY
+        send_long_message(
+            message.chat.id,
+            final_text
         )
 
         # DELETE IMAGE
         try:
             os.remove(path)
+
         except:
             pass
 
@@ -286,7 +352,7 @@ def start(m):
         f"""
 🚀 AMUDANCE FX AI
 
-🤖 Powered by trading bible 
+🤖 Powered by Gemini 2.5 Flash
 
 💎 Credits:
 {get_credit(m.chat.id)}
@@ -566,6 +632,7 @@ def handle_image(m):
                 )
 
             analyze_market(m, file_info)
+
             return
 
         # FREE USER
@@ -574,6 +641,7 @@ def handle_image(m):
             use_free(uid)
 
             analyze_market(m, file_info)
+
             return
 
         # NO ACCESS
@@ -653,6 +721,7 @@ def ask_chart(m):
 # =========================
 @app.route("/")
 def home():
+
     return "BOT RUNNING"
 
 # =========================
