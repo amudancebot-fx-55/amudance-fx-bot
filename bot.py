@@ -4,6 +4,7 @@ from flask import Flask
 import os
 import json
 import time
+import base64
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
@@ -104,7 +105,7 @@ def human_delay(chat_id, sec=2):
     time.sleep(sec)
 
 # =========================
-# AI ANALYSIS
+# AI ANALYSIS (FIXED GEMINI)
 # =========================
 def analyze_market(message, file_info):
 
@@ -139,15 +140,28 @@ Be structured and precise.
         human_delay(message.chat.id, 2)
 
         bot.send_message(message.chat.id, "📊 Processing market structure...")
-        human_delay(message.chat.id, 3)
-
-        with open(path, "rb") as img:
-            response = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=[prompt, img]
-            )
-
         human_delay(message.chat.id, 2)
+
+        # =========================
+        # GEMINI FIXED INPUT
+        # =========================
+        with open(path, "rb") as f:
+            image_bytes = f.read()
+
+        image_base64 = base64.b64encode(image_bytes).decode()
+
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=[
+                prompt,
+                {
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": image_base64
+                    }
+                }
+            ]
+        )
 
         bot.send_message(
             message.chat.id,
@@ -200,7 +214,7 @@ def buy(m):
     bot.send_message(m.chat.id, "💎 Choose plan:", reply_markup=markup)
 
 # =========================
-# BUY CALLBACK + PAYMENT REQUEST
+# BUY CALLBACK
 # =========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("buy_"))
 def buy_callback(c):
@@ -239,7 +253,7 @@ def buy_callback(c):
     )
 
 # =========================
-# USER SAYS PAID
+# USER PAID
 # =========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("paid_"))
 def user_paid(c):
@@ -267,14 +281,15 @@ User: {uid}
 Amount: ₦{data['amount']}
 Credits: {data['credits']}
 Time: {data['time']}
-""",
+"""
+        ,
         reply_markup=markup
     )
 
-    bot.answer_callback_query(c.id, "Sent for review ✅")
+    bot.answer_callback_query(c.id, "Sent for review")
 
 # =========================
-# ADMIN APPROVE / REJECT
+# ADMIN ACTION
 # =========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("approve_") or c.data.startswith("reject_"))
 def admin_action(c):
@@ -292,12 +307,12 @@ def admin_action(c):
 
     if action == "approve":
         add_credit(uid, data["credits"])
-        bot.send_message(uid, f"✅ Payment approved!\n🎉 {data['credits']} credits added")
-        bot.send_message(ADMIN_ID, "Approved ✅")
+        bot.send_message(uid, f"✅ Approved!\n🎉 {data['credits']} credits added")
+        bot.send_message(ADMIN_ID, "Approved")
 
     else:
-        bot.send_message(uid, "❌ Payment rejected. Contact support.")
-        bot.send_message(ADMIN_ID, "Rejected ❌")
+        bot.send_message(uid, "❌ Rejected. Contact support.")
+        bot.send_message(ADMIN_ID, "Rejected")
 
     del pending[uid]
     save("pending_payments.json", pending)
@@ -312,8 +327,7 @@ def handle_image(m):
 
     if m.content_type == "photo":
         file_info = bot.get_file(m.photo[-1].file_id)
-
-    elif m.content_type == "document":
+    else:
         if not m.document.mime_type.startswith("image/"):
             return bot.reply_to(m, "❌ Only images allowed")
         file_info = bot.get_file(m.document.file_id)
@@ -332,17 +346,14 @@ def handle_image(m):
         analyze_market(m, file_info)
         return
 
-    bot.reply_to(m, "❌ Free trial ended. Please buy credits.")
+    bot.reply_to(m, "❌ Free trial ended. Buy credits.")
 
 # =========================
 # BALANCE
 # =========================
 @bot.message_handler(func=lambda m: m.text == "💰 My Balance")
 def bal(m):
-    bot.reply_to(
-        m,
-        f"💎 Credits: {get_credit(m.chat.id)}\n🎁 Free Left: {FREE_LIMIT - get_free_used(m.chat.id)}"
-    )
+    bot.reply_to(m, f"💎 Credits: {get_credit(m.chat.id)}\n🎁 Free Left: {FREE_LIMIT - get_free_used(m.chat.id)}")
 
 # =========================
 # SUPPORT
