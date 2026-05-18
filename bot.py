@@ -7,7 +7,6 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
-from PIL import Image
 
 # =========================
 # ENV
@@ -41,12 +40,9 @@ app = Flask(__name__)
 # =========================
 # FILES
 # =========================
-USER_FILE = "users.json"
-CREDIT_FILE = "credits.json"
-FREE_FILE = "free_trial.json"
-PENDING_FILE = "pending_payments.json"
+FILES = ["users.json", "credits.json", "free_trial.json", "pending_payments.json"]
 
-for f in [USER_FILE, CREDIT_FILE, FREE_FILE, PENDING_FILE]:
+for f in FILES:
     if not os.path.exists(f):
         with open(f, "w") as x:
             json.dump({}, x)
@@ -68,19 +64,19 @@ def save(f, d):
 # CREDIT SYSTEM
 # =========================
 def get_credit(uid):
-    return load(CREDIT_FILE).get(str(uid), 0)
+    return load("credits.json").get(str(uid), 0)
 
 def add_credit(uid, amt):
-    d = load(CREDIT_FILE)
+    d = load("credits.json")
     d[str(uid)] = d.get(str(uid), 0) + amt
-    save(CREDIT_FILE, d)
+    save("credits.json", d)
 
 def use_credit(uid):
-    d = load(CREDIT_FILE)
+    d = load("credits.json")
     uid = str(uid)
     if d.get(uid, 0) > 0:
         d[uid] -= 1
-        save(CREDIT_FILE, d)
+        save("credits.json", d)
         return True
     return False
 
@@ -90,15 +86,15 @@ def use_credit(uid):
 FREE_LIMIT = 2
 
 def get_free_used(uid):
-    return load(FREE_FILE).get(str(uid), 0)
+    return load("free_trial.json").get(str(uid), 0)
 
 def can_use_free(uid):
     return get_free_used(uid) < FREE_LIMIT
 
 def use_free(uid):
-    d = load(FREE_FILE)
+    d = load("free_trial.json")
     d[str(uid)] = d.get(str(uid), 0) + 1
-    save(FREE_FILE, d)
+    save("free_trial.json", d)
 
 # =========================
 # TYPING DELAY
@@ -111,6 +107,7 @@ def human_delay(chat_id, sec=2):
 # AI ANALYSIS
 # =========================
 def analyze_market(message, file_info):
+
     try:
         file = bot.download_file(file_info.file_path)
 
@@ -119,7 +116,7 @@ def analyze_market(message, file_info):
             f.write(file)
 
         prompt = """
-You are a professional Smart Money Concepts forex trader.
+You are a Smart Money Concepts forex trader.
 
 Analyze this chart:
 
@@ -132,37 +129,36 @@ Analyze this chart:
 7. Take profit
 8. Risk level
 
-Be precise and structured.
+Be structured and precise.
 """
 
+        bot.send_message(message.chat.id, "📡 Upload received...")
+        human_delay(message.chat.id, 2)
+
+        bot.send_message(message.chat.id, "🧠 AI analyzing...")
+        human_delay(message.chat.id, 2)
+
+        bot.send_message(message.chat.id, "📊 Processing market structure...")
+        human_delay(message.chat.id, 3)
+
         with open(path, "rb") as img:
-
-            bot.send_message(message.chat.id, "📡 Upload received...")
-            human_delay(message.chat.id, 2)
-
-            bot.send_message(message.chat.id, "🧠 AI analyzing market...")
-            human_delay(message.chat.id, 2)
-
-            bot.send_message(message.chat.id, "📊 Detecting structure...")
-            human_delay(message.chat.id, 3)
-
             response = client.models.generate_content(
                 model="gemini-1.5-flash",
                 contents=[prompt, img]
             )
 
-            human_delay(message.chat.id, 2)
+        human_delay(message.chat.id, 2)
 
-            bot.send_message(
-                message.chat.id,
-                f"✅ ANALYSIS COMPLETE\n\n{response.text}"
-            )
+        bot.send_message(
+            message.chat.id,
+            f"✅ ANALYSIS COMPLETE\n\n{response.text}"
+        )
 
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ AI error: {e}")
 
 # =========================
-# START MENU
+# START
 # =========================
 @bot.message_handler(commands=['start'])
 def start(m):
@@ -177,7 +173,7 @@ def start(m):
 🚀 AMUDANCE FX AI
 
 💎 Credits: {get_credit(m.chat.id)}
-🎁 Free Uses: {FREE_LIMIT - get_free_used(m.chat.id)}
+🎁 Free Left: {FREE_LIMIT - get_free_used(m.chat.id)}
 
 Choose option 👇
 """,
@@ -211,13 +207,13 @@ def buy_callback(c):
 
     _, amount, credits = c.data.split("_")
 
-    pending = load(PENDING_FILE)
+    pending = load("pending_payments.json")
     pending[str(c.message.chat.id)] = {
         "amount": int(amount),
         "credits": int(credits),
         "time": str(datetime.now())
     }
-    save(PENDING_FILE, pending)
+    save("pending_payments.json", pending)
 
     bot.send_message(
         c.message.chat.id,
@@ -233,7 +229,7 @@ def buy_callback(c):
     )
 
 # =========================
-# IMAGE HANDLER (AUTO FIX + LOGIC)
+# IMAGE HANDLER (FULL LOGIC FIX)
 # =========================
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_image(m):
@@ -246,12 +242,14 @@ def handle_image(m):
             return bot.reply_to(m, "❌ Only images allowed")
         file_info = bot.get_file(m.document.file_id)
 
-    pending = load(PENDING_FILE)
+    pending = load("pending_payments.json")
+
+    uid = str(m.chat.id)
 
     # =========================
-    # PAYMENT USERS
+    # PAID USERS
     # =========================
-    if str(m.chat.id) in pending:
+    if uid in pending:
 
         if not use_credit(m.chat.id):
             return bot.reply_to(m, "❌ No credits left. Buy more.")
@@ -271,49 +269,16 @@ def handle_image(m):
     # =========================
     # BLOCKED USERS
     # =========================
-    bot.reply_to(m, "❌ Free trial ended. Buy credits to continue.")
-
-# =========================
-# APPROVE PAYMENT
-# =========================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("approve_"))
-def approve(c):
-
-    _, uid, credits = c.data.split("_")
-    uid = int(uid)
-
-    add_credit(uid, int(credits))
-
-    pending = load(PENDING_FILE)
-    if str(uid) in pending:
-        del pending[str(uid)]
-        save(PENDING_FILE, pending)
-
-    bot.send_message(uid, f"✅ Approved +{credits} credits")
-
-# =========================
-# REJECT PAYMENT
-# =========================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("reject_"))
-def reject(c):
-
-    _, uid = c.data.split("_")
-    uid = int(uid)
-
-    pending = load(PENDING_FILE)
-    if str(uid) in pending:
-        del pending[str(uid)]
-        save(PENDING_FILE, pending)
-
-    bot.send_message(uid, "❌ Payment rejected")
+    bot.reply_to(m, "❌ Free trial ended. Please buy credits.")
 
 # =========================
 # BALANCE
 # =========================
 @bot.message_handler(func=lambda m: m.text == "💰 My Balance")
 def bal(m):
-    bot.reply_to(m,
-        f"💎 Credits: {get_credit(m.chat.id)}\n🎁 Free left: {FREE_LIMIT - get_free_used(m.chat.id)}"
+    bot.reply_to(
+        m,
+        f"💎 Credits: {get_credit(m.chat.id)}\n🎁 Free Left: {FREE_LIMIT - get_free_used(m.chat.id)}"
     )
 
 # =========================
