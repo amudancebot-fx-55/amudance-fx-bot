@@ -351,36 +351,6 @@ to start analysis.
     )
 
 # =========================
-# REJECT PAYMENT
-# =========================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("reject_"))
-def reject(c):
-
-    _, user_id = c.data.split("_")
-
-    user_id = int(user_id)
-
-    pending = load(PENDING_FILE)
-
-    if str(user_id) in pending:
-        del pending[str(user_id)]
-
-    save(PENDING_FILE, pending)
-
-    bot.send_message(
-        user_id,
-        "❌ Payment rejected\nContact support if this is a mistake."
-    )
-
-    bot.answer_callback_query(c.id, "Rejected")
-
-    bot.edit_message_caption(
-        caption=c.message.caption + "\n\n❌ REJECTED",
-        chat_id=c.message.chat.id,
-        message_id=c.message.message_id
-    )
-
-# =========================
 # BALANCE
 # =========================
 @bot.message_handler(func=lambda m: m.text == "💰 My Balance")
