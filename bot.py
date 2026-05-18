@@ -49,6 +49,15 @@ for f in FILES:
             json.dump({}, x)
 
 # =========================
+# GEMINI MODELS (AUTO FIX)
+# =========================
+GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
+]
+
+# =========================
 # HELPERS
 # =========================
 def load(f):
@@ -60,6 +69,15 @@ def load(f):
 def save(f, d):
     with open(f, "w") as x:
         json.dump(d, x, indent=4)
+
+# =========================
+# LIMIT MESSAGE (NEW)
+# =========================
+def limit_message():
+    return (
+        "⚠️ Bot is currently busy or limit reached.\n\n"
+        "Please try again in 30 minutes or contact support."
+    )
 
 # =========================
 # CREDIT SYSTEM
@@ -105,7 +123,33 @@ def human_delay(chat_id, sec=2):
     time.sleep(sec)
 
 # =========================
-# AI ANALYSIS (FIXED GEMINI)
+# GEMINI SAFE CALL (FIXED)
+# =========================
+def call_gemini(prompt, image_base64):
+    last_error = None
+
+    for model in GEMINI_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=[
+                    prompt,
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": image_base64
+                        }
+                    }
+                ]
+            )
+            return response.text
+        except Exception as e:
+            last_error = e
+
+    return None
+
+# =========================
+# AI ANALYSIS
 # =========================
 def analyze_market(message, file_info):
 
@@ -129,47 +173,30 @@ Analyze this chart:
 6. Stop loss
 7. Take profit
 8. Risk level
-
-Be structured and precise.
 """
 
         bot.send_message(message.chat.id, "📡 Upload received...")
-        human_delay(message.chat.id, 2)
+        human_delay(message.chat.id, 1)
 
         bot.send_message(message.chat.id, "🧠 AI analyzing...")
-        human_delay(message.chat.id, 2)
+        human_delay(message.chat.id, 1)
 
         bot.send_message(message.chat.id, "📊 Processing market structure...")
-        human_delay(message.chat.id, 2)
+        human_delay(message.chat.id, 1)
 
-        # =========================
-        # GEMINI FIXED INPUT
-        # =========================
         with open(path, "rb") as f:
-            image_bytes = f.read()
+            image_base64 = base64.b64encode(f.read()).decode()
 
-        image_base64 = base64.b64encode(image_bytes).decode()
+        result = call_gemini(prompt, image_base64)
 
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=[
-                prompt,
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": image_base64
-                    }
-                }
-            ]
-        )
+        if not result:
+            bot.send_message(message.chat.id, limit_message())
+            return
 
-        bot.send_message(
-            message.chat.id,
-            f"✅ ANALYSIS COMPLETE\n\n{response.text}"
-        )
+        bot.send_message(message.chat.id, f"✅ ANALYSIS COMPLETE\n\n{result}")
 
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ AI error: {e}")
+    except Exception:
+        bot.send_message(message.chat.id, limit_message())
 
 # =========================
 # START
@@ -281,8 +308,7 @@ User: {uid}
 Amount: ₦{data['amount']}
 Credits: {data['credits']}
 Time: {data['time']}
-"""
-        ,
+""",
         reply_markup=markup
     )
 
@@ -309,7 +335,6 @@ def admin_action(c):
         add_credit(uid, data["credits"])
         bot.send_message(uid, f"✅ Approved!\n🎉 {data['credits']} credits added")
         bot.send_message(ADMIN_ID, "Approved")
-
     else:
         bot.send_message(uid, "❌ Rejected. Contact support.")
         bot.send_message(ADMIN_ID, "Rejected")
@@ -325,28 +350,32 @@ def admin_action(c):
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_image(m):
 
-    if m.content_type == "photo":
-        file_info = bot.get_file(m.photo[-1].file_id)
-    else:
-        if not m.document.mime_type.startswith("image/"):
-            return bot.reply_to(m, "❌ Only images allowed")
-        file_info = bot.get_file(m.document.file_id)
+    try:
+        if m.content_type == "photo":
+            file_info = bot.get_file(m.photo[-1].file_id)
+        else:
+            if not m.document.mime_type.startswith("image/"):
+                return bot.reply_to(m, "❌ Only images allowed")
+            file_info = bot.get_file(m.document.file_id)
 
-    uid = str(m.chat.id)
-    pending = load("pending_payments.json")
+        uid = str(m.chat.id)
+        pending = load("pending_payments.json")
 
-    if uid in pending:
-        if not use_credit(m.chat.id):
-            return bot.reply_to(m, "❌ No credits left")
-        analyze_market(m, file_info)
-        return
+        if uid in pending:
+            if not use_credit(m.chat.id):
+                return bot.reply_to(m, limit_message())
+            analyze_market(m, file_info)
+            return
 
-    if can_use_free(m.chat.id):
-        use_free(m.chat.id)
-        analyze_market(m, file_info)
-        return
+        if can_use_free(m.chat.id):
+            use_free(m.chat.id)
+            analyze_market(m, file_info)
+            return
 
-    bot.reply_to(m, "❌ Free trial ended. Buy credits.")
+        bot.reply_to(m, limit_message())
+
+    except Exception:
+        bot.reply_to(m, limit_message())
 
 # =========================
 # BALANCE
