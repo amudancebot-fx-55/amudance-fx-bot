@@ -39,13 +39,18 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 app = Flask(__name__)
 
 # =========================
-# FILES
+# DATA FOLDER
 # =========================
+DATA_FOLDER = "data"
+
+if not os.path.exists(DATA_FOLDER):
+    os.makedirs(DATA_FOLDER)
+
 FILES = [
-    "users.json",
-    "credits.json",
-    "free_trial.json",
-    "pending_payments.json"
+    f"{DATA_FOLDER}/users.json",
+    f"{DATA_FOLDER}/credits.json",
+    f"{DATA_FOLDER}/free_trial.json",
+    f"{DATA_FOLDER}/pending_payments.json"
 ]
 
 for f in FILES:
@@ -59,6 +64,13 @@ for f in FILES:
 # GEMINI MODEL
 # =========================
 GEMINI_MODEL = "gemini-2.5-flash"
+
+# =========================
+# VIP USERS
+# =========================
+VIP_USERS = [
+    ADMIN_ID
+]
 
 # =========================
 # HELPERS
@@ -81,30 +93,35 @@ def save(f, d):
 # =========================
 def limit_message():
 
-    return (
-        "⚠️ Bot overload or AI limit reached.\n\n"
-        "Please wait for about 30 minutes and try again.\n"
-        "Or contact admin support."
-    )
+    return """
+⚠️ Bot is currently in cool mode.
+
+Please try again in a few minutes or hr.
+
+📞 Support:
+@Amudancefx
+"""
 
 # =========================
 # CREDIT SYSTEM
 # =========================
 def get_credit(uid):
 
-    return load("credits.json").get(str(uid), 0)
+    return load(
+        f"{DATA_FOLDER}/credits.json"
+    ).get(str(uid), 0)
 
 def add_credit(uid, amt):
 
-    d = load("credits.json")
+    d = load(f"{DATA_FOLDER}/credits.json")
 
     d[str(uid)] = d.get(str(uid), 0) + amt
 
-    save("credits.json", d)
+    save(f"{DATA_FOLDER}/credits.json", d)
 
 def use_credit(uid):
 
-    d = load("credits.json")
+    d = load(f"{DATA_FOLDER}/credits.json")
 
     uid = str(uid)
 
@@ -112,7 +129,7 @@ def use_credit(uid):
 
         d[uid] -= 1
 
-        save("credits.json", d)
+        save(f"{DATA_FOLDER}/credits.json", d)
 
         return True
 
@@ -120,13 +137,14 @@ def use_credit(uid):
 
 # =========================
 # FREE TRIAL SYSTEM
-# ONE TIME ONLY
 # =========================
 FREE_LIMIT = 2
 
 def get_free_used(uid):
 
-    data = load("free_trial.json")
+    data = load(
+        f"{DATA_FOLDER}/free_trial.json"
+    )
 
     return data.get(str(uid), 0)
 
@@ -138,26 +156,52 @@ def can_use_free(uid):
 
 def use_free(uid):
 
-    data = load("free_trial.json")
+    data = load(
+        f"{DATA_FOLDER}/free_trial.json"
+    )
 
     uid = str(uid)
 
-    # SAVE PERMANENTLY
     data[uid] = data.get(uid, 0) + 1
 
-    save("free_trial.json", data)
+    save(
+        f"{DATA_FOLDER}/free_trial.json",
+        data
+    )
 
 # =========================
-# HUMAN DELAY
+# COOLDOWN SYSTEM
 # =========================
-def human_delay(chat_id, sec=2):
+last_used = {}
 
-    bot.send_chat_action(chat_id, "typing")
+def cooldown(uid):
 
-    time.sleep(sec)
+    now = time.time()
+
+    if uid in last_used:
+
+        if now - last_used[uid] < 15:
+            return False
+
+    last_used[uid] = now
+
+    return True
 
 # =========================
-# SAFE GEMINI CALL
+# SAFE LONG MESSAGE
+# =========================
+def send_long_message(chat_id, text):
+
+    MAX_LENGTH = 4000
+
+    for i in range(0, len(text), MAX_LENGTH):
+
+        chunk = text[i:i + MAX_LENGTH]
+
+        bot.send_message(chat_id, chunk)
+
+# =========================
+# GEMINI CALL
 # =========================
 def call_gemini(prompt, image_base64):
 
@@ -186,19 +230,6 @@ def call_gemini(prompt, image_base64):
     return None
 
 # =========================
-# SEND LONG MESSAGE SAFELY
-# =========================
-def send_long_message(chat_id, text):
-
-    MAX_LENGTH = 4000
-
-    for i in range(0, len(text), MAX_LENGTH):
-
-        chunk = text[i:i + MAX_LENGTH]
-
-        bot.send_message(chat_id, chunk)
-
-# =========================
 # AI ANALYSIS
 # =========================
 def analyze_market(message, file_info):
@@ -213,74 +244,34 @@ def analyze_market(message, file_info):
         with open(path, "wb") as f:
             f.write(file)
 
-        # AI PROMPT
-        prompt = """
-You are an elite Smart Money Concepts forex trader.
-
-Analyze this trading chart professionally.
-
-Provide:
-
-1. Current trend direction
-2. Market structure (BOS / CHoCH)
-3. Key support and resistance
-4. Liquidity zones
-5. Institutional bias
-6. Best BUY or SELL entry
-7. Stop loss
-8. Take profit targets
-9. Risk level
-10. Final trading recommendation
-
-Extra Rules:
-- Be highly accurate
-- Use institutional trading logic
-- Avoid vague explanations
-- Give realistic entries
-- Keep formatting clean
-- Use emojis professionally
-- Give clean sniper entries
-- Mention invalidation zone
-- Mention confidence level
-
-Keep it structured, clean, and precise.
-"""
-
-        # LOADING EFFECT
-        bot.send_message(
+        # LOADING
+        loading = bot.send_message(
             message.chat.id,
             "📡 Upload received..."
         )
 
-        human_delay(message.chat.id, 1)
+        steps = [
+            "🧠 AI analyzing chart...",
+            "📊 Processing structure...",
+            "💹 Detecting liquidity...",
+            "🏦 Tracking institutions...",
+            "📈 Generating sniper setup...",
+            "✅ Finalizing analysis..."
+        ]
 
-        bot.send_message(
-            message.chat.id,
-            "🧠 AI analyzing chart..."
-        )
+        for step in steps:
 
-        human_delay(message.chat.id, 1)
+            time.sleep(1)
 
-        bot.send_message(
-            message.chat.id,
-            "📊 Processing market structure..."
-        )
+            try:
+                bot.edit_message_text(
+                    step,
+                    message.chat.id,
+                    loading.message_id
+                )
 
-        human_delay(message.chat.id, 1)
-
-        bot.send_message(
-            message.chat.id,
-            "💹 Detecting liquidity zones..."
-        )
-
-        human_delay(message.chat.id, 1)
-
-        bot.send_message(
-            message.chat.id,
-            "🏦 Tracking institutional bias..."
-        )
-
-        human_delay(message.chat.id, 1)
+            except:
+                pass
 
         # READ IMAGE
         with open(path, "rb") as f:
@@ -291,7 +282,40 @@ Keep it structured, clean, and precise.
             image_bytes
         ).decode()
 
-        # GEMINI RESPONSE
+        # PROMPT
+        prompt = """
+You are a world-class institutional forex trader.
+
+Analyze this chart using:
+- Smart Money Concepts
+- ICT concepts
+- Liquidity analysis
+- BOS and CHoCH
+- Order blocks
+- Fair value gaps
+- Premium and discount zones
+
+Provide:
+1. Trend direction
+2. Market structure
+3. Liquidity zones
+4. Institutional bias
+5. Best entry
+6. Stop loss
+7. Take profit targets
+8. Risk level
+9. Confidence level
+10. Final recommendation
+
+Rules:
+- Be highly accurate
+- Give sniper entries
+- Use professional formatting
+- Keep response clean
+- Avoid vague explanations
+"""
+
+        # AI RESULT
         result = call_gemini(
             prompt,
             image_base64
@@ -306,20 +330,23 @@ Keep it structured, clean, and precise.
 
             return
 
-        # FINAL TEXT
         final_text = f"""
-✅ ANALYSIS COMPLETE
+━━━━━━━━━━━━━━━━━━
+🚀 AMUDANCE FX AI
+━━━━━━━━━━━━━━━━━━
 
 {result}
+
+━━━━━━━━━━━━━━━━━━
+⚠️ Trade responsibly
 """
 
-        # SEND LONG MESSAGE SAFELY
         send_long_message(
             message.chat.id,
             final_text
         )
 
-        # DELETE IMAGE
+        # DELETE FILE
         try:
             os.remove(path)
 
@@ -341,108 +368,165 @@ Keep it structured, clean, and precise.
 @bot.message_handler(commands=['start'])
 def start(m):
 
-    markup = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
+    # SAVE USER
+    users = load(f"{DATA_FOLDER}/users.json")
+
+    users[str(m.chat.id)] = {
+        "name": m.from_user.first_name
+    }
+
+    save(
+        f"{DATA_FOLDER}/users.json",
+        users
     )
 
-    markup.row(
-        "📊 Analyze Market",
-        "💳 Buy Credits"
+    markup = types.InlineKeyboardMarkup(
+        row_width=2
     )
 
-    markup.row(
-        "💰 My Balance",
-        "📞 Support"
+    markup.add(
+        types.InlineKeyboardButton(
+            "📊 Analyze Market",
+            callback_data="analyze"
+        ),
+
+        types.InlineKeyboardButton(
+            "💳 Buy Credits",
+            callback_data="buy_menu"
+        )
     )
 
-    bot.send_message(
-        m.chat.id,
-        f"""
-🚀 CHART ANALYSIS AI
+    markup.add(
+        types.InlineKeyboardButton(
+            "💰 My Balance",
+            callback_data="balance"
+        ),
 
-🤖 Powered by All Strategies 
+        types.InlineKeyboardButton(
+            "📞 Support",
+            url="https://t.me/Amudancefx"
+        )
+    )
+
+    text = f"""
+🚀 AMUDANCE FX AI
+
+🤖 Powered ALL FX Strategy 
+
+━━━━━━━━━━━━━━━━━━
+
+🎁 Free Trial:
+{FREE_LIMIT - get_free_used(m.chat.id)}
 
 💎 Credits:
 {get_credit(m.chat.id)}
 
-🎁 Free Left:
-{FREE_LIMIT - get_free_used(m.chat.id)}
+━━━━━━━━━━━━━━━━━━
 
 Choose an option below 👇
-""",
-        reply_markup=markup
-    )
-
-# =========================
-# BUY MENU
-# =========================
-@bot.message_handler(
-    func=lambda m:
-    m.text == "💳 Buy Credits"
-)
-def buy(m):
-
-    markup = types.InlineKeyboardMarkup()
-
-    plans = [
-        (500, 1),
-        (1000, 2),
-        (2000, 4),
-        (3000, 6),
-        (5000, 10),
-        (10000, 20)
-    ]
-
-    for price, credits in plans:
-
-        markup.add(
-            types.InlineKeyboardButton(
-                f"{credits} Credits - ₦{price}",
-                callback_data=f"buy_{price}_{credits}"
-            )
-        )
+"""
 
     bot.send_message(
         m.chat.id,
-        "💎 Choose your credit plan:",
+        text,
         reply_markup=markup
     )
 
 # =========================
-# BUY CALLBACK
+# CALLBACK HANDLER
 # =========================
-@bot.callback_query_handler(
-    func=lambda c:
-    c.data.startswith("buy_")
-)
-def buy_callback(c):
-
-    _, amount, credits = c.data.split("_")
+@bot.callback_query_handler(func=lambda c: True)
+def callbacks(c):
 
     uid = str(c.message.chat.id)
 
-    pending = load("pending_payments.json")
+    # ANALYZE
+    if c.data == "analyze":
 
-    pending[uid] = {
-        "amount": int(amount),
-        "credits": int(credits),
-        "time": str(datetime.now())
-    }
+        bot.answer_callback_query(c.id)
 
-    save("pending_payments.json", pending)
-
-    markup = types.InlineKeyboardMarkup()
-
-    markup.add(
-        types.InlineKeyboardButton(
-            "✅ I HAVE PAID",
-            callback_data=f"paid_{uid}"
+        bot.send_message(
+            uid,
+            "📸 Send your chart screenshot for analysis."
         )
-    )
 
-    bot.send_message(
-        uid,
-        f"""
+    # BALANCE
+    elif c.data == "balance":
+
+        bot.answer_callback_query(c.id)
+
+        bot.send_message(
+            uid,
+            f"""
+💎 Credits:
+{get_credit(uid)}
+
+🎁 Free Left:
+{FREE_LIMIT - get_free_used(uid)}
+"""
+        )
+
+    # BUY MENU
+    elif c.data == "buy_menu":
+
+        markup = types.InlineKeyboardMarkup()
+
+        plans = [
+            (500, 1),
+            (1000, 2),
+            (2000, 4),
+            (3000, 6),
+            (5000, 10),
+            (10000, 20)
+        ]
+
+        for price, credits in plans:
+
+            markup.add(
+                types.InlineKeyboardButton(
+                    f"{credits} Credits - ₦{price}",
+                    callback_data=f"buy_{price}_{credits}"
+                )
+            )
+
+        bot.send_message(
+            uid,
+            "💎 Choose your credit plan:",
+            reply_markup=markup
+        )
+
+    # BUY
+    elif c.data.startswith("buy_"):
+
+        _, amount, credits = c.data.split("_")
+
+        pending = load(
+            f"{DATA_FOLDER}/pending_payments.json"
+        )
+
+        pending[uid] = {
+            "amount": int(amount),
+            "credits": int(credits),
+            "time": str(datetime.now())
+        }
+
+        save(
+            f"{DATA_FOLDER}/pending_payments.json",
+            pending
+        )
+
+        markup = types.InlineKeyboardMarkup()
+
+        markup.add(
+            types.InlineKeyboardButton(
+                "✅ I HAVE PAID",
+                callback_data=f"paid_{uid}"
+            )
+        )
+
+        bot.send_message(
+            uid,
+            f"""
 🏦 PAYMENT DETAILS
 
 Bank:
@@ -462,51 +546,48 @@ Account Name:
 
 ⚠️ After payment click the button below.
 """,
-        reply_markup=markup
-    )
-
-# =========================
-# USER PAID
-# =========================
-@bot.callback_query_handler(
-    func=lambda c:
-    c.data.startswith("paid_")
-)
-def user_paid(c):
-
-    uid = c.data.split("_")[1]
-
-    pending = load("pending_payments.json")
-
-    if uid not in pending:
-
-        return bot.answer_callback_query(
-            c.id,
-            "No pending payment found"
+            reply_markup=markup
         )
 
-    data = pending[uid]
+    # USER PAID
+    elif c.data.startswith("paid_"):
 
-    markup = types.InlineKeyboardMarkup()
+        user_id = c.data.split("_")[1]
 
-    markup.row(
-        types.InlineKeyboardButton(
-            "✅ APPROVE",
-            callback_data=f"approve_{uid}"
-        ),
-        types.InlineKeyboardButton(
-            "❌ REJECT",
-            callback_data=f"reject_{uid}"
+        pending = load(
+            f"{DATA_FOLDER}/pending_payments.json"
         )
-    )
 
-    bot.send_message(
-        ADMIN_ID,
-        f"""
+        if user_id not in pending:
+
+            return bot.answer_callback_query(
+                c.id,
+                "No pending payment found"
+            )
+
+        data = pending[user_id]
+
+        markup = types.InlineKeyboardMarkup()
+
+        markup.row(
+            types.InlineKeyboardButton(
+                "✅ APPROVE",
+                callback_data=f"approve_{user_id}"
+            ),
+
+            types.InlineKeyboardButton(
+                "❌ REJECT",
+                callback_data=f"reject_{user_id}"
+            )
+        )
+
+        bot.send_message(
+            ADMIN_ID,
+            f"""
 💰 PAYMENT REQUEST
 
 👤 User:
-{uid}
+{user_id}
 
 💵 Amount:
 ₦{data['amount']}
@@ -517,50 +598,43 @@ def user_paid(c):
 🕒 Time:
 {data['time']}
 """,
-        reply_markup=markup
-    )
-
-    bot.answer_callback_query(
-        c.id,
-        "Payment sent for review ✅"
-    )
-
-# =========================
-# ADMIN ACTION
-# =========================
-@bot.callback_query_handler(
-    func=lambda c:
-    c.data.startswith("approve_")
-    or c.data.startswith("reject_")
-)
-def admin_action(c):
-
-    if c.from_user.id != ADMIN_ID:
-
-        return bot.answer_callback_query(
-            c.id,
-            "Not allowed"
+            reply_markup=markup
         )
 
-    action, uid = c.data.split("_")
-
-    pending = load("pending_payments.json")
-
-    if uid not in pending:
-
-        return bot.answer_callback_query(
+        bot.answer_callback_query(
             c.id,
-            "Already processed"
+            "Payment sent for review ✅"
         )
 
-    data = pending[uid]
+    # ADMIN APPROVE
+    elif c.data.startswith("approve_"):
 
-    if action == "approve":
+        if c.from_user.id != ADMIN_ID:
 
-        add_credit(uid, data["credits"])
+            return bot.answer_callback_query(
+                c.id,
+                "Not allowed"
+            )
+
+        user_id = c.data.split("_")[1]
+
+        pending = load(
+            f"{DATA_FOLDER}/pending_payments.json"
+        )
+
+        if user_id not in pending:
+
+            return
+
+        data = pending[user_id]
+
+        add_credit(
+            user_id,
+            data["credits"]
+        )
 
         bot.send_message(
-            uid,
+            user_id,
             f"""
 ✅ PAYMENT APPROVED
 
@@ -568,31 +642,54 @@ def admin_action(c):
 """
         )
 
-        bot.send_message(
-            ADMIN_ID,
-            "✅ Payment approved"
+        del pending[user_id]
+
+        save(
+            f"{DATA_FOLDER}/pending_payments.json",
+            pending
         )
 
-    else:
-
-        bot.send_message(
-            uid,
-            "❌ Payment rejected.\nContact support."
+        bot.answer_callback_query(
+            c.id,
+            "Approved"
         )
 
-        bot.send_message(
-            ADMIN_ID,
-            "❌ Payment rejected"
+    # ADMIN REJECT
+    elif c.data.startswith("reject_"):
+
+        if c.from_user.id != ADMIN_ID:
+
+            return bot.answer_callback_query(
+                c.id,
+                "Not allowed"
+            )
+
+        user_id = c.data.split("_")[1]
+
+        pending = load(
+            f"{DATA_FOLDER}/pending_payments.json"
         )
 
-    del pending[uid]
+        if user_id not in pending:
 
-    save("pending_payments.json", pending)
+            return
 
-    bot.answer_callback_query(
-        c.id,
-        "Done"
-    )
+        bot.send_message(
+            user_id,
+            "❌ Payment rejected."
+        )
+
+        del pending[user_id]
+
+        save(
+            f"{DATA_FOLDER}/pending_payments.json",
+            pending
+        )
+
+        bot.answer_callback_query(
+            c.id,
+            "Rejected"
+        )
 
 # =========================
 # IMAGE HANDLER
@@ -603,6 +700,16 @@ def admin_action(c):
 def handle_image(m):
 
     try:
+
+        uid = str(m.chat.id)
+
+        # COOLDOWN
+        if not cooldown(uid):
+
+            return bot.reply_to(
+                m,
+                "⏳ Wait 15 seconds before next analysis."
+            )
 
         # PHOTO
         if m.content_type == "photo":
@@ -618,14 +725,22 @@ def handle_image(m):
 
                 return bot.reply_to(
                     m,
-                    "❌ Only image files allowed"
+                    "❌ Only image files allowed."
                 )
 
             file_info = bot.get_file(
                 m.document.file_id
             )
 
-        uid = str(m.chat.id)
+        # VIP USER
+        if int(uid) in VIP_USERS:
+
+            analyze_market(
+                m,
+                file_info
+            )
+
+            return
 
         # PAID USER
         if get_credit(uid) > 0:
@@ -634,10 +749,13 @@ def handle_image(m):
 
                 return bot.reply_to(
                     m,
-                    "❌ No credits left"
+                    "❌ No credits left."
                 )
 
-            analyze_market(m, file_info)
+            analyze_market(
+                m,
+                file_info
+            )
 
             return
 
@@ -646,7 +764,10 @@ def handle_image(m):
 
             use_free(uid)
 
-            analyze_market(m, file_info)
+            analyze_market(
+                m,
+                file_info
+            )
 
             return
 
@@ -656,13 +777,13 @@ def handle_image(m):
             """
 ❌ Free trial ended forever.
 
-💳 Please buy credits to continue.
+💳 Buy credits to continue.
 """
         )
 
     except Exception as e:
 
-        print("Image Handler Error:", e)
+        print("Image Error:", e)
 
         bot.reply_to(
             m,
@@ -670,56 +791,39 @@ def handle_image(m):
         )
 
 # =========================
-# BALANCE
+# BROADCAST
 # =========================
-@bot.message_handler(
-    func=lambda m:
-    m.text == "💰 My Balance"
-)
-def balance(m):
+@bot.message_handler(commands=['broadcast'])
+def broadcast(m):
 
-    bot.reply_to(
-        m,
-        f"""
-💎 Credits:
-{get_credit(m.chat.id)}
+    if m.chat.id != ADMIN_ID:
+        return
 
-🎁 Free Left:
-{FREE_LIMIT - get_free_used(m.chat.id)}
-"""
+    text = m.text.replace(
+        "/broadcast ",
+        ""
     )
 
-# =========================
-# SUPPORT
-# =========================
-@bot.message_handler(
-    func=lambda m:
-    m.text == "📞 Support"
-)
-def support(m):
-
-    bot.reply_to(
-        m,
-        """
-📞 Support:
-@Amudancefx
-"""
+    users = load(
+        f"{DATA_FOLDER}/users.json"
     )
 
-# =========================
-# ANALYZE BUTTON
-# =========================
-@bot.message_handler(
-    func=lambda m:
-    m.text == "📊 Analyze Market"
-)
-def ask_chart(m):
+    count = 0
+
+    for uid in users:
+
+        try:
+
+            bot.send_message(uid, text)
+
+            count += 1
+
+        except:
+            pass
 
     bot.reply_to(
         m,
-        """
-📸 Send your chart screenshot for analysis.
-"""
+        f"✅ Sent to {count} users"
     )
 
 # =========================
@@ -731,10 +835,12 @@ def home():
     return "BOT RUNNING"
 
 # =========================
-# RUN BOT
+# RUN
 # =========================
 if __name__ == "__main__":
 
     print("BOT STARTED")
 
-    bot.infinity_polling(skip_pending=True)
+    bot.infinity_polling(
+        skip_pending=True
+            )
