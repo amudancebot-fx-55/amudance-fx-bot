@@ -61,7 +61,7 @@ for f in FILES:
             json.dump({}, x)
 
 # =========================
-# MODEL
+# GEMINI MODEL
 # =========================
 GEMINI_MODEL = "gemini-2.5-flash"
 
@@ -71,6 +71,11 @@ GEMINI_MODEL = "gemini-2.5-flash"
 VIP_USERS = [
     ADMIN_ID
 ]
+
+# =========================
+# BROADCAST MODE
+# =========================
+broadcast_mode = {}
 
 # =========================
 # HELPERS
@@ -118,6 +123,13 @@ def main_menu():
         types.InlineKeyboardButton(
             "📞 Support",
             url="https://t.me/Amudancefx"
+        )
+    )
+
+    markup.add(
+        types.InlineKeyboardButton(
+            "📢 Broadcast",
+            callback_data="broadcast"
         )
     )
 
@@ -257,7 +269,6 @@ def call_gemini(prompt, image_base64):
             ]
         )
 
-        # SAFE RESPONSE
         if hasattr(response, "text"):
 
             if response.text:
@@ -507,6 +518,27 @@ def callbacks(c):
             uid,
             "💎 Choose your credit plan:",
             reply_markup=markup
+        )
+
+    # BROADCAST BUTTON
+    elif c.data == "broadcast":
+
+        if c.from_user.id != ADMIN_ID:
+
+            return bot.answer_callback_query(
+                c.id,
+                "Not allowed"
+            )
+
+        broadcast_mode[c.from_user.id] = True
+
+        bot.send_message(
+            c.message.chat.id,
+            """
+📢 Broadcast Mode Enabled
+
+Send the message you want to broadcast to all users.
+"""
         )
 
     # BUY
@@ -810,31 +842,6 @@ def handle_image(m):
         )
 
 # =========================
-# BROADCAST MODE
-# =========================
-broadcast_mode = {}
-
-# =========================
-# OPEN BROADCAST
-# =========================
-@bot.message_handler(commands=['broadcast'])
-def open_broadcast(m):
-
-    if m.chat.id != ADMIN_ID:
-        return
-
-    broadcast_mode[m.chat.id] = True
-
-    bot.send_message(
-        m.chat.id,
-        """
-📢 Broadcast Mode Enabled
-
-Send the message you want to broadcast to all users.
-"""
-    )
-
-# =========================
 # SEND BROADCAST
 # =========================
 @bot.message_handler(func=lambda m: m.chat.id in broadcast_mode)
@@ -878,7 +885,8 @@ def send_broadcast(m):
 
 👥 Users Reached:
 {total}
-"""
+""",
+        reply_markup=main_menu()
     )
 
 # =========================
@@ -898,4 +906,4 @@ if __name__ == "__main__":
 
     bot.infinity_polling(
         skip_pending=True
-)
+    )
