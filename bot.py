@@ -61,7 +61,7 @@ for f in FILES:
             json.dump({}, x)
 
 # =========================
-# GEMINI MODEL
+# MODEL
 # =========================
 GEMINI_MODEL = "gemini-2.5-flash"
 
@@ -89,17 +89,54 @@ def save(f, d):
         json.dump(d, x, indent=4)
 
 # =========================
-# LIMIT MESSAGE
+# MAIN MENU
 # =========================
-def limit_message():
+def main_menu():
+
+    markup = types.InlineKeyboardMarkup(
+        row_width=2
+    )
+
+    markup.add(
+        types.InlineKeyboardButton(
+            "📊 Analyze Market",
+            callback_data="analyze"
+        ),
+
+        types.InlineKeyboardButton(
+            "💳 Buy Credits",
+            callback_data="buy_menu"
+        )
+    )
+
+    markup.add(
+        types.InlineKeyboardButton(
+            "💰 My Balance",
+            callback_data="balance"
+        ),
+
+        types.InlineKeyboardButton(
+            "📞 Support",
+            url="https://t.me/Amudancefx"
+        )
+    )
+
+    return markup
+
+# =========================
+# SAFE ERROR MESSAGE
+# =========================
+def safe_error():
 
     return """
-⚠️ Bot is currently in cool mode.
+⚠️ Analysis temporarily unavailable.
 
-Please try again in a few minutes or hr.
+Possible reasons:
+• Servers are busy
+• Image quality is too low
+• Market chart is unclear
 
-📞 Support:
-@Amudancefx
+Please try again with a clearer screenshot in a few moments.
 """
 
 # =========================
@@ -170,7 +207,7 @@ def use_free(uid):
     )
 
 # =========================
-# COOLDOWN SYSTEM
+# COOLDOWN
 # =========================
 last_used = {}
 
@@ -188,7 +225,7 @@ def cooldown(uid):
     return True
 
 # =========================
-# SAFE LONG MESSAGE
+# LONG MESSAGE FIX
 # =========================
 def send_long_message(chat_id, text):
 
@@ -220,12 +257,18 @@ def call_gemini(prompt, image_base64):
             ]
         )
 
-        if response.text:
-            return response.text
+        # SAFE RESPONSE
+        if hasattr(response, "text"):
 
-    except Exception as e:
+            if response.text:
 
-        print("Gemini Error:", e)
+                clean = response.text.strip()
+
+                if len(clean) > 5:
+                    return clean
+
+    except:
+        return None
 
     return None
 
@@ -236,7 +279,6 @@ def analyze_market(message, file_info):
 
     try:
 
-        # DOWNLOAD IMAGE
         file = bot.download_file(file_info.file_path)
 
         path = f"chart_{message.chat.id}.jpg"
@@ -244,18 +286,17 @@ def analyze_market(message, file_info):
         with open(path, "wb") as f:
             f.write(file)
 
-        # LOADING
         loading = bot.send_message(
             message.chat.id,
             "📡 Upload received..."
         )
 
         steps = [
-            "🧠 AI analyzing chart...",
-            "📊 Processing structure...",
-            "💹 Detecting liquidity...",
-            "🏦 Tracking institutions...",
-            "📈 Generating sniper setup...",
+            "📊 Reading market structure...",
+            "💹 Detecting liquidity zones...",
+            "🏦 Tracking smart money activity...",
+            "📈 Building trade setup...",
+            "🎯 Calculating entry points...",
             "✅ Finalizing analysis..."
         ]
 
@@ -264,6 +305,7 @@ def analyze_market(message, file_info):
             time.sleep(1)
 
             try:
+
                 bot.edit_message_text(
                     step,
                     message.chat.id,
@@ -273,7 +315,6 @@ def analyze_market(message, file_info):
             except:
                 pass
 
-        # READ IMAGE
         with open(path, "rb") as f:
 
             image_bytes = f.read()
@@ -282,25 +323,25 @@ def analyze_market(message, file_info):
             image_bytes
         ).decode()
 
-        # PROMPT
         prompt = """
-You are a world-class institutional forex trader.
+You are a professional institutional forex trader.
 
-Analyze this chart using:
+Analyze this forex chart professionally using:
 - Smart Money Concepts
 - ICT concepts
 - Liquidity analysis
 - BOS and CHoCH
 - Order blocks
 - Fair value gaps
+- Market structure
 - Premium and discount zones
 
 Provide:
-1. Trend direction
+1. Current trend
 2. Market structure
 3. Liquidity zones
 4. Institutional bias
-5. Best entry
+5. Best BUY or SELL entry
 6. Stop loss
 7. Take profit targets
 8. Risk level
@@ -308,14 +349,12 @@ Provide:
 10. Final recommendation
 
 Rules:
-- Be highly accurate
-- Give sniper entries
-- Use professional formatting
-- Keep response clean
-- Avoid vague explanations
+- Keep it clean and professional
+- Avoid long explanations
+- Give realistic setups only
+- Use proper formatting
 """
 
-        # AI RESULT
         result = call_gemini(
             prompt,
             image_base64
@@ -323,16 +362,15 @@ Rules:
 
         if not result:
 
-            bot.send_message(
+            return bot.send_message(
                 message.chat.id,
-                limit_message()
+                safe_error(),
+                reply_markup=main_menu()
             )
-
-            return
 
         final_text = f"""
 ━━━━━━━━━━━━━━━━━━
-🚀 AMUDANCE FX AI
+🚀 AMUDANCE FX
 ━━━━━━━━━━━━━━━━━━
 
 {result}
@@ -346,20 +384,24 @@ Rules:
             final_text
         )
 
-        # DELETE FILE
+        bot.send_message(
+            message.chat.id,
+            "✅ Analysis completed successfully.",
+            reply_markup=main_menu()
+        )
+
         try:
             os.remove(path)
 
         except:
             pass
 
-    except Exception as e:
-
-        print("Analysis Error:", e)
+    except:
 
         bot.send_message(
             message.chat.id,
-            limit_message()
+            safe_error(),
+            reply_markup=main_menu()
         )
 
 # =========================
@@ -368,7 +410,6 @@ Rules:
 @bot.message_handler(commands=['start'])
 def start(m):
 
-    # SAVE USER
     users = load(f"{DATA_FOLDER}/users.json")
 
     users[str(m.chat.id)] = {
@@ -380,42 +421,14 @@ def start(m):
         users
     )
 
-    markup = types.InlineKeyboardMarkup(
-        row_width=2
-    )
-
-    markup.add(
-        types.InlineKeyboardButton(
-            "📊 Analyze Market",
-            callback_data="analyze"
-        ),
-
-        types.InlineKeyboardButton(
-            "💳 Buy Credits",
-            callback_data="buy_menu"
-        )
-    )
-
-    markup.add(
-        types.InlineKeyboardButton(
-            "💰 My Balance",
-            callback_data="balance"
-        ),
-
-        types.InlineKeyboardButton(
-            "📞 Support",
-            url="https://t.me/Amudancefx"
-        )
-    )
-
     text = f"""
-🚀 AMUDANCE FX AI
+🚀 AMUDANCE FX
 
-🤖 Powered ALL FX Strategy 
+📈 Professional Market Analysis
 
 ━━━━━━━━━━━━━━━━━━
 
-🎁 Free Trial:
+🎁 Free Trial Left:
 {FREE_LIMIT - get_free_used(m.chat.id)}
 
 💎 Credits:
@@ -429,11 +442,11 @@ Choose an option below 👇
     bot.send_message(
         m.chat.id,
         text,
-        reply_markup=markup
+        reply_markup=main_menu()
     )
 
 # =========================
-# CALLBACK HANDLER
+# CALLBACKS
 # =========================
 @bot.callback_query_handler(func=lambda c: True)
 def callbacks(c):
@@ -461,9 +474,10 @@ def callbacks(c):
 💎 Credits:
 {get_credit(uid)}
 
-🎁 Free Left:
+🎁 Free Trial Left:
 {FREE_LIMIT - get_free_used(uid)}
-"""
+""",
+            reply_markup=main_menu()
         )
 
     # BUY MENU
@@ -606,7 +620,7 @@ Account Name:
             "Payment sent for review ✅"
         )
 
-    # ADMIN APPROVE
+    # APPROVE
     elif c.data.startswith("approve_"):
 
         if c.from_user.id != ADMIN_ID:
@@ -623,7 +637,6 @@ Account Name:
         )
 
         if user_id not in pending:
-
             return
 
         data = pending[user_id]
@@ -639,7 +652,11 @@ Account Name:
 ✅ PAYMENT APPROVED
 
 🎉 {data['credits']} credits added successfully.
-"""
+
+💎 Total Credits:
+{get_credit(user_id)}
+""",
+            reply_markup=main_menu()
         )
 
         del pending[user_id]
@@ -654,7 +671,7 @@ Account Name:
             "Approved"
         )
 
-    # ADMIN REJECT
+    # REJECT
     elif c.data.startswith("reject_"):
 
         if c.from_user.id != ADMIN_ID:
@@ -671,12 +688,16 @@ Account Name:
         )
 
         if user_id not in pending:
-
             return
 
         bot.send_message(
             user_id,
-            "❌ Payment rejected."
+            """
+❌ Payment rejected.
+
+📞 Contact support if needed.
+""",
+            reply_markup=main_menu()
         )
 
         del pending[user_id]
@@ -703,12 +724,11 @@ def handle_image(m):
 
         uid = str(m.chat.id)
 
-        # COOLDOWN
         if not cooldown(uid):
 
             return bot.reply_to(
                 m,
-                "⏳ Wait 15 seconds before next analysis."
+                "⏳ Please wait 15 seconds before another analysis."
             )
 
         # PHOTO
@@ -725,14 +745,14 @@ def handle_image(m):
 
                 return bot.reply_to(
                     m,
-                    "❌ Only image files allowed."
+                    "❌ Only image files are allowed."
                 )
 
             file_info = bot.get_file(
                 m.document.file_id
             )
 
-        # VIP USER
+        # VIP
         if int(uid) in VIP_USERS:
 
             analyze_market(
@@ -742,7 +762,7 @@ def handle_image(m):
 
             return
 
-        # PAID USER
+        # PAID
         if get_credit(uid) > 0:
 
             if not use_credit(uid):
@@ -759,7 +779,7 @@ def handle_image(m):
 
             return
 
-        # FREE USER
+        # FREE
         if can_use_free(uid):
 
             use_free(uid)
@@ -771,59 +791,94 @@ def handle_image(m):
 
             return
 
-        # NO ACCESS
         bot.reply_to(
             m,
             """
-❌ Free trial ended forever.
+❌ Free trial ended permanently.
 
 💳 Buy credits to continue.
-"""
+""",
+            reply_markup=main_menu()
         )
 
-    except Exception as e:
-
-        print("Image Error:", e)
+    except:
 
         bot.reply_to(
             m,
-            limit_message()
+            safe_error(),
+            reply_markup=main_menu()
         )
 
 # =========================
-# BROADCAST
+# BROADCAST MODE
+# =========================
+broadcast_mode = {}
+
+# =========================
+# OPEN BROADCAST
 # =========================
 @bot.message_handler(commands=['broadcast'])
-def broadcast(m):
+def open_broadcast(m):
 
     if m.chat.id != ADMIN_ID:
         return
 
-    text = m.text.replace(
-        "/broadcast ",
-        ""
+    broadcast_mode[m.chat.id] = True
+
+    bot.send_message(
+        m.chat.id,
+        """
+📢 Broadcast Mode Enabled
+
+Send the message you want to broadcast to all users.
+"""
     )
+
+# =========================
+# SEND BROADCAST
+# =========================
+@bot.message_handler(func=lambda m: m.chat.id in broadcast_mode)
+def send_broadcast(m):
+
+    if m.chat.id != ADMIN_ID:
+        return
 
     users = load(
         f"{DATA_FOLDER}/users.json"
     )
 
-    count = 0
+    total = 0
 
     for uid in users:
 
         try:
 
-            bot.send_message(uid, text)
+            bot.send_message(
+                uid,
+                f"""
+📢 ANNOUNCEMENT
 
-            count += 1
+{m.text}
+"""
+            )
+
+            total += 1
+
+            time.sleep(0.3)
 
         except:
             pass
 
-    bot.reply_to(
-        m,
-        f"✅ Sent to {count} users"
+    del broadcast_mode[m.chat.id]
+
+    bot.send_message(
+        m.chat.id,
+        f"""
+✅ Broadcast Sent Successfully
+
+👥 Users Reached:
+{total}
+"""
     )
 
 # =========================
@@ -843,4 +898,4 @@ if __name__ == "__main__":
 
     bot.infinity_polling(
         skip_pending=True
-            )
+)
