@@ -119,25 +119,33 @@ def use_credit(uid):
     return False
 
 # =========================
-# FREE SYSTEM
+# FREE TRIAL SYSTEM
+# ONE TIME ONLY
 # =========================
 FREE_LIMIT = 2
 
 def get_free_used(uid):
 
-    return load("free_trial.json").get(str(uid), 0)
+    data = load("free_trial.json")
+
+    return data.get(str(uid), 0)
 
 def can_use_free(uid):
 
-    return get_free_used(uid) < FREE_LIMIT
+    used = get_free_used(uid)
+
+    return used < FREE_LIMIT
 
 def use_free(uid):
 
-    d = load("free_trial.json")
+    data = load("free_trial.json")
 
-    d[str(uid)] = d.get(str(uid), 0) + 1
+    uid = str(uid)
 
-    save("free_trial.json", d)
+    # SAVE PERMANENTLY
+    data[uid] = data.get(uid, 0) + 1
+
+    save("free_trial.json", data)
 
 # =========================
 # HUMAN DELAY
@@ -350,7 +358,7 @@ def start(m):
     bot.send_message(
         m.chat.id,
         f"""
-🚀 AMUDANCE FX AI
+🚀 CHART ANALYSIS AI
 
 🤖 Powered by All Strategies 
 
@@ -547,7 +555,6 @@ def admin_action(c):
 
     data = pending[uid]
 
-    # APPROVE
     if action == "approve":
 
         add_credit(uid, data["credits"])
@@ -566,7 +573,6 @@ def admin_action(c):
             "✅ Payment approved"
         )
 
-    # REJECT
     else:
 
         bot.send_message(
@@ -648,7 +654,7 @@ def handle_image(m):
         bot.reply_to(
             m,
             """
-❌ Free trial ended.
+❌ Free trial ended forever.
 
 💳 Please buy credits to continue.
 """
